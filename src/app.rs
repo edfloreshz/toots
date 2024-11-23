@@ -5,51 +5,39 @@ use crate::fl;
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::alignment::{Horizontal, Vertical};
-use cosmic::iced::{Alignment, Length, Subscription};
-use cosmic::widget::{self, icon, menu, nav_bar};
-use cosmic::{cosmic_theme, theme, Application, ApplicationExt, Apply, Element};
+use cosmic::iced::{Length, Subscription};
+use cosmic::widget::about::About;
+use cosmic::widget::{self, menu, nav_bar};
+use cosmic::{Application, ApplicationExt, Apply, Element};
 use futures_util::SinkExt;
 use std::collections::HashMap;
+use std::fmt::Display;
 
 const REPOSITORY: &str = "https://github.com/edfloreshz/toot";
-const APP_ICON: &[u8] = include_bytes!("../res/icons/hicolor/scalable/apps/icon.svg");
+const SUPPORT: &str = "https://github.com/edfloreshz/toot/issues";
 
-/// The application model stores app-specific state used to describe its interface and
-/// drive its logic.
 pub struct AppModel {
-    /// Application state which is managed by the COSMIC runtime.
     core: Core,
-    /// Display a context drawer with the designated page if defined.
+    about: About,
     context_page: ContextPage,
-    /// Contains items assigned to the nav bar panel.
     nav: nav_bar::Model,
-    /// Key bindings for the application's menu bar.
     key_binds: HashMap<menu::KeyBind, MenuAction>,
-    // Configuration data that persists between application runs.
     config: Config,
 }
 
-/// Messages emitted by the application and its widgets.
 #[derive(Debug, Clone)]
 pub enum Message {
-    OpenRepositoryUrl,
+    Open(String),
     SubscriptionChannel,
     ToggleContextPage(ContextPage),
+    ToggleContextDrawer,
     UpdateConfig(Config),
 }
 
-/// Create a COSMIC application from the app model
 impl Application for AppModel {
-    /// The async executor that will be used to run your application's commands.
     type Executor = cosmic::executor::Default;
-
-    /// Data that your application receives to its init method.
     type Flags = ();
-
-    /// Messages which the application and its widgets will emit.
     type Message = Message;
-
-    /// Unique identifier in RDNN (reverse domain name notation) format.
     const APP_ID: &'static str = "dev.edfloreshz.Toot";
 
     fn core(&self) -> &Core {
@@ -60,34 +48,29 @@ impl Application for AppModel {
         &mut self.core
     }
 
-    /// Initializes the application with any given flags and startup commands.
     fn init(core: Core, _flags: Self::Flags) -> (Self, Task<Self::Message>) {
-        // Create a nav bar with three page items.
         let mut nav = nav_bar::Model::default();
 
-        nav.insert()
-            .text(fl!("page-id", num = 1))
-            .data::<Page>(Page::Page1)
-            .icon(icon::from_name("applications-science-symbolic"))
-            .activate();
+        for page in Page::variants() {
+            nav.insert()
+                .text(page.to_string())
+                .icon(widget::icon::from_name(page.icon()));
+        }
 
-        nav.insert()
-            .text(fl!("page-id", num = 2))
-            .data::<Page>(Page::Page2)
-            .icon(icon::from_name("applications-system-symbolic"));
+        let about = About::default()
+            .name(fl!("app-title"))
+            .version("0.1.0")
+            .icon(Self::APP_ID)
+            .author("Eduardo Flores")
+            .developers([("Eduardo Flores", "edfloreshz@proton.me")])
+            .links([(fl!("repository"), REPOSITORY), (fl!("support"), SUPPORT)]);
 
-        nav.insert()
-            .text(fl!("page-id", num = 3))
-            .data::<Page>(Page::Page3)
-            .icon(icon::from_name("applications-games-symbolic"));
-
-        // Construct the app model with the runtime's core.
         let mut app = AppModel {
             core,
+            about,
             context_page: ContextPage::default(),
             nav,
             key_binds: HashMap::new(),
-            // Optional configuration file for an application.
             config: cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
                 .map(|context| match Config::get_entry(&context) {
                     Ok(config) => config,
@@ -96,13 +79,11 @@ impl Application for AppModel {
                 .unwrap_or_default(),
         };
 
-        // Create a startup command that sets the window title.
         let command = app.update_title();
 
         (app, command)
     }
 
-    /// Elements to pack at the start of the header bar.
     fn header_start(&self) -> Vec<Element<Self::Message>> {
         let menu_bar = menu::bar(vec![menu::Tree::with_children(
             menu::root(fl!("view")),
@@ -115,30 +96,28 @@ impl Application for AppModel {
         vec![menu_bar.into()]
     }
 
-    /// Enables the COSMIC application to create a nav bar with this model.
     fn nav_model(&self) -> Option<&nav_bar::Model> {
         Some(&self.nav)
     }
 
-    /// Display a context drawer if the context page is requested.
+    fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<Self::Message> {
+        self.nav.activate(id);
+        self.update_title()
+    }
+
     fn context_drawer(&self) -> Option<context_drawer::ContextDrawer<Self::Message>> {
         if !self.core.window.show_context {
             return None;
         }
 
         Some(match self.context_page {
-            ContextPage::About => context_drawer::context_drawer(
-                self.about(),
-                Message::ToggleContextPage(ContextPage::About),
-            )
-            .title(fl!("about")),
+            ContextPage::About => {
+                context_drawer::about(&self.about, Message::Open, Message::ToggleContextDrawer)
+                    .title(fl!("about"))
+            }
         })
     }
 
-    /// Describes the interface based on the current state of the application model.
-    ///
-    /// Application events will be processed through the view. Any messages emitted by
-    /// events received by widgets will be passed to the update method.
     fn view(&self) -> Element<Self::Message> {
         widget::text::title1(fl!("welcome"))
             .apply(widget::container)
@@ -149,16 +128,10 @@ impl Application for AppModel {
             .into()
     }
 
-    /// Register subscriptions for this application.
-    ///
-    /// Subscriptions are long-running async tasks running in the background which
-    /// emit messages to the application through a channel. They are started at the
-    /// beginning of the application, and persist through its lifetime.
     fn subscription(&self) -> Subscription<Self::Message> {
         struct MySubscription;
 
         Subscription::batch(vec![
-            // Create a subscription which emits updates through a channel.
             Subscription::run_with_id(
                 std::any::TypeId::of::<MySubscription>(),
                 cosmic::iced::stream::channel(4, move |mut channel| async move {
@@ -167,85 +140,46 @@ impl Application for AppModel {
                     futures_util::future::pending().await
                 }),
             ),
-            // Watch for application configuration changes.
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
                 .map(|update| Message::UpdateConfig(update.config)),
         ])
     }
 
-    /// Handles messages emitted by the application and its widgets.
-    ///
-    /// Tasks may be returned for asynchronous execution of code in the background
-    /// on the application's async runtime.
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
         match message {
-            Message::OpenRepositoryUrl => {
-                _ = open::that_detached(REPOSITORY);
+            Message::Open(url) => {
+                if let Err(err) = open::that_detached(url) {
+                    tracing::error!("{err}")
+                }
             }
-
-            Message::SubscriptionChannel => {
-                // For example purposes only.
-            }
-
+            Message::SubscriptionChannel => {}
             Message::ToggleContextPage(context_page) => {
                 if self.context_page == context_page {
-                    // Close the context drawer if the toggled context page is the same.
                     self.core.window.show_context = !self.core.window.show_context;
                 } else {
-                    // Open the context drawer to display the requested context page.
                     self.context_page = context_page;
                     self.core.window.show_context = true;
                 }
             }
-
+            Message::ToggleContextDrawer => {
+                self.core.window.show_context = !self.core.window.show_context;
+            }
             Message::UpdateConfig(config) => {
                 self.config = config;
             }
         }
         Task::none()
     }
-
-    /// Called when a nav item is selected.
-    fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<Self::Message> {
-        // Activate the page in the model.
-        self.nav.activate(id);
-
-        self.update_title()
-    }
 }
 
 impl AppModel {
-    /// The about page for this app.
-    pub fn about(&self) -> Element<Message> {
-        let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
-
-        let icon = widget::svg(widget::svg::Handle::from_memory(APP_ICON));
-
-        let title = widget::text::title3(fl!("app-title"));
-
-        let link = widget::button::link(REPOSITORY)
-            .on_press(Message::OpenRepositoryUrl)
-            .padding(0);
-
-        widget::column()
-            .push(icon)
-            .push(title)
-            .push(link)
-            .align_x(Alignment::Center)
-            .spacing(space_xxs)
-            .into()
-    }
-
-    /// Updates the header and window titles.
     pub fn update_title(&mut self) -> Task<Message> {
         let mut window_title = fl!("app-title");
-
         if let Some(page) = self.nav.text(self.nav.active()) {
             window_title.push_str(" — ");
             window_title.push_str(page);
         }
-
         if let Some(id) = self.core.main_window_id() {
             self.set_window_title(window_title, id)
         } else {
@@ -254,14 +188,68 @@ impl AppModel {
     }
 }
 
-/// The page to display in the application.
 pub enum Page {
-    Page1,
-    Page2,
-    Page3,
+    Home,
+    Notifications,
+    Search,
+    Favorites,
+    Bookmarks,
+    Hashtags,
+    Lists,
+    Explore,
+    Local,
+    Federated,
 }
 
-/// The context page to display in the context drawer.
+impl Display for Page {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Page::Home => write!(f, "{}", fl!("home")),
+            Page::Notifications => write!(f, "{}", fl!("notifications")),
+            Page::Search => write!(f, "{}", fl!("search")),
+            Page::Favorites => write!(f, "{}", fl!("favorites")),
+            Page::Bookmarks => write!(f, "{}", fl!("bookmarks")),
+            Page::Hashtags => write!(f, "{}", fl!("hashtags")),
+            Page::Lists => write!(f, "{}", fl!("lists")),
+            Page::Explore => write!(f, "{}", fl!("explore")),
+            Page::Local => write!(f, "{}", fl!("local")),
+            Page::Federated => write!(f, "{}", fl!("federated")),
+        }
+    }
+}
+
+impl Page {
+    pub fn variants() -> [Self; 10] {
+        [
+            Self::Home,
+            Self::Notifications,
+            Self::Search,
+            Self::Favorites,
+            Self::Bookmarks,
+            Self::Hashtags,
+            Self::Lists,
+            Self::Explore,
+            Self::Local,
+            Self::Federated,
+        ]
+    }
+
+    fn icon(&self) -> &str {
+        match self {
+            Page::Home => "user-home-symbolic",
+            Page::Notifications => "emblem-important-symbolic",
+            Page::Search => "folder-saved-search-symbolic",
+            Page::Favorites => "emoji-body-symbolic",
+            Page::Bookmarks => "bookmark-new-symbolic",
+            Page::Hashtags => "lang-include-symbolic",
+            Page::Lists => "view-list-symbolic",
+            Page::Explore => "find-location-symbolic",
+            Page::Local => "network-server-symbolic",
+            Page::Federated => "network-workgroup-symbolic",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ContextPage {
     #[default]
