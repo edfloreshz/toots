@@ -1,7 +1,6 @@
 app-title = Toot
 about = About
 view = View
-welcome = Toots!
 
 ## Navbar
 home = Home
@@ -19,3 +18,14 @@ federated = Federated
 about = About
 repository = Repository
 support = Support
+
+## Login
+server-question = What's your server?
+server-description = If you don't have an account yet, register to a server of your choice.
+server-url = Server URL
+continue = Continue
+
+## Authorization
+confirm-authorization = Confirm authorization
+confirm-authorization-description = Copy the authorization code from the browser and paste it here.
+authorization-code = Authorization code
