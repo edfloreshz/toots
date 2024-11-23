@@ -11,7 +11,7 @@ use cosmic::{cosmic_theme, theme, Application, ApplicationExt, Apply, Element};
 use futures_util::SinkExt;
 use std::collections::HashMap;
 
-const REPOSITORY: &str = "https://github.com/pop-os/cosmic-app-template";
+const REPOSITORY: &str = "https://github.com/edfloreshz/toot";
 const APP_ICON: &[u8] = include_bytes!("../res/icons/hicolor/scalable/apps/icon.svg");
 
 /// The application model stores app-specific state used to describe its interface and
@@ -50,7 +50,7 @@ impl Application for AppModel {
     type Message = Message;
 
     /// Unique identifier in RDNN (reverse domain name notation) format.
-    const APP_ID: &'static str = "com.example.CosmicAppTemplate";
+    const APP_ID: &'static str = "dev.edfloreshz.Toot";
 
     fn core(&self) -> &Core {
         &self.core
@@ -91,13 +91,7 @@ impl Application for AppModel {
             config: cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
                 .map(|context| match Config::get_entry(&context) {
                     Ok(config) => config,
-                    Err((_errors, config)) => {
-                        // for why in errors {
-                        //     tracing::error!(%why, "error loading app config");
-                        // }
-
-                        config
-                    }
+                    Err((_errors, config)) => config,
                 })
                 .unwrap_or_default(),
         };
@@ -176,13 +170,7 @@ impl Application for AppModel {
             // Watch for application configuration changes.
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
-                .map(|update| {
-                    // for why in update.errors {
-                    //     tracing::error!(?why, "app config error");
-                    // }
-
-                    Message::UpdateConfig(update.config)
-                }),
+                .map(|update| Message::UpdateConfig(update.config)),
         ])
     }
 

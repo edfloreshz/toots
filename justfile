@@ -1,5 +1,5 @@
-name := 'cosmic-app-template'
-appid := 'com.example.CosmicAppTemplate'
+name := 'cosmic-ext-toot'
+appid := 'dev.edfloreshz.Toot'
 
 rootdir := ''
 prefix := '/usr'
