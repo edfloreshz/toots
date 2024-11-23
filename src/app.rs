@@ -7,6 +7,7 @@ use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::alignment::{Horizontal, Vertical};
 use cosmic::iced::{Length, Subscription};
 use cosmic::widget::about::About;
+use cosmic::widget::menu::{ItemHeight, ItemWidth};
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{Application, ApplicationExt, Apply, Element};
 use futures_util::SinkExt;
@@ -19,8 +20,8 @@ const SUPPORT: &str = "https://github.com/edfloreshz/toot/issues";
 pub struct AppModel {
     core: Core,
     about: About,
-    context_page: ContextPage,
     nav: nav_bar::Model,
+    context_page: ContextPage,
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     config: Config,
 }
@@ -68,8 +69,8 @@ impl Application for AppModel {
         let mut app = AppModel {
             core,
             about,
-            context_page: ContextPage::default(),
             nav,
+            context_page: ContextPage::default(),
             key_binds: HashMap::new(),
             config: cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
                 .map(|context| match Config::get_entry(&context) {
@@ -85,13 +86,21 @@ impl Application for AppModel {
     }
 
     fn header_start(&self) -> Vec<Element<Self::Message>> {
+        let spacing = cosmic::theme::active().cosmic().spacing;
         let menu_bar = menu::bar(vec![menu::Tree::with_children(
             menu::root(fl!("view")),
             menu::items(
                 &self.key_binds,
-                vec![menu::Item::Button(fl!("about"), None, MenuAction::About)],
+                vec![menu::Item::Button(
+                    fl!("about"),
+                    Some(widget::icon::from_name("help-info-symbolic").into()),
+                    MenuAction::About,
+                )],
             ),
-        )]);
+        )])
+        .item_height(ItemHeight::Dynamic(40))
+        .item_width(ItemWidth::Uniform(260))
+        .spacing(spacing.space_xxxs.into());
 
         vec![menu_bar.into()]
     }
