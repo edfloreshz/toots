@@ -1,4 +1,4 @@
-use cosmic::{iced::mouse::Interaction, widget, Apply, Element};
+use cosmic::{iced::mouse::Interaction, widget, Element};
 use mastodon_async::prelude::{AccountId, Status, StatusId};
 
 #[derive(Debug, Clone)]
@@ -9,6 +9,7 @@ pub enum Message {
     Favorite(StatusId),
     Boost(StatusId),
     Bookmark(StatusId),
+    OpenLink(String),
 }
 
 pub fn status<'a>(
@@ -45,6 +46,23 @@ pub fn status<'a>(
         .string_from_read(status.content.as_bytes(), 700)
         .unwrap();
 
+    let tags: Option<Element<_>> = (!status.tags.is_empty()).then(|| {
+        widget::row()
+            .spacing(spacing.space_xxs)
+            .extend(
+                status
+                    .tags
+                    .iter()
+                    .map(|tag| {
+                        widget::button::suggested(format!("#{}", tag.name.clone()))
+                            .on_press(Message::OpenLink(tag.url.clone()))
+                            .into()
+                    })
+                    .collect::<Vec<Element<Message>>>(),
+            )
+            .into()
+    });
+
     let content = widget::column()
         .push_maybe(reblog)
         .push(
@@ -69,6 +87,7 @@ pub fn status<'a>(
                 )
                 .spacing(spacing.space_xs),
         )
+        .push_maybe(tags)
         .push(
             widget::row()
                 .push(
@@ -95,10 +114,10 @@ pub fn status<'a>(
                     widget::button::icon(widget::icon::from_name("bookmark-new-symbolic"))
                         .on_press(Message::Bookmark(status.id.clone())),
                 )
+                .padding(spacing.space_xs)
                 .spacing(spacing.space_xs),
         )
-        .spacing(spacing.space_xs)
-        .apply(widget::container);
+        .spacing(spacing.space_xs);
 
     widget::settings::flex_item_row(vec![content.into()])
         .padding(spacing.space_xs)

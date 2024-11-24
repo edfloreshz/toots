@@ -1,13 +1,8 @@
 use cosmic::{widget, Element};
-use mastodon_async::{
-    entities::notification::NotificationType,
-    prelude::{AccountId, Notification, StatusId},
-};
+use mastodon_async::{entities::notification::NotificationType, prelude::Notification};
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    OpenProfile(AccountId),
-    ExpandStatus(StatusId),
     Status(crate::widgets::status::Message),
 }
 
@@ -44,20 +39,19 @@ pub fn notification<'a>(
             .push(widget::text(action))
             .spacing(spacing.space_xs),
     )
-    .on_press(Message::OpenProfile(notification.account.id.clone()));
+    .on_press(Message::Status(
+        crate::widgets::status::Message::OpenProfile(notification.account.id.clone()),
+    ));
 
-    let content: Element<'a, Message> = if let Some(status) = notification.status {
+    let content = notification.status.map(|status| {
         widget::container(crate::widgets::status(status, sender_avatar, None).map(Message::Status))
             .padding(spacing.space_xxs)
             .class(cosmic::theme::Container::Dialog)
-            .into()
-    } else {
-        widget::text("Idk").into()
-    };
+    });
 
     let content = widget::column()
         .push(action)
-        .push(content)
+        .push_maybe(content)
         .spacing(spacing.space_xs);
 
     widget::settings::flex_item_row(vec![content.into()])

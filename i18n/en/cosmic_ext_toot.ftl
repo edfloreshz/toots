@@ -15,7 +15,6 @@ local = Local
 federated = Federated
 
 ## About
-about = About
 repository = Repository
 support = Support
 
@@ -29,3 +28,8 @@ continue = Continue
 confirm-authorization = Confirm authorization
 confirm-authorization-description = Copy the authorization code from the browser and paste it here.
 authorization-code = Authorization code
+
+## Context
+about = About
+profile = Profile
+status = Status

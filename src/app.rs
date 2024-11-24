@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: {{LICENSE}}
 
 use crate::config::TootConfig;
+use crate::pages::home::Post;
 use crate::pages::IMAGE_LOADER;
 use crate::{fl, pages};
 use cosmic::app::{context_drawer, Core, Task};
@@ -14,6 +15,7 @@ use cosmic::{Application, ApplicationExt, Apply, Element};
 use futures_util::SinkExt;
 use futures_util::TryStreamExt;
 use mastodon_async::helpers::toml;
+use mastodon_async::prelude::Account;
 use mastodon_async::registration::Registered;
 use mastodon_async::{entities::event::Event, Data, Mastodon, Registration};
 use std::collections::HashMap;
@@ -203,12 +205,28 @@ impl Application for AppModel {
             return None;
         }
 
-        Some(match self.context_page {
+        Some(match &self.context_page {
             ContextPage::About => {
                 context_drawer::about(&self.about, Message::Open, Message::ToggleContextDrawer)
-                    .title(fl!("about"))
+                    .title(self.context_page.title())
+            }
+            ContextPage::Account(account) => {
+                context_drawer::context_drawer(self.account(account), Message::ToggleContextDrawer)
+                    .title(self.context_page.title())
+            }
+            ContextPage::Status(post) => {
+                context_drawer::context_drawer(self.status(post), Message::ToggleContextDrawer)
+                    .title(self.context_page.title())
             }
         })
+    }
+
+    fn on_escape(&mut self) -> Task<Self::Message> {
+        if self.core.window.show_context {
+            self.core.window.show_context = false;
+        }
+
+        Task::none()
     }
 
     fn view(&self) -> Element<Self::Message> {
@@ -517,6 +535,26 @@ impl AppModel {
             .max_width(400.)
             .into()
     }
+
+    fn status(&self, post: &Post) -> Element<Message> {
+        widget::column()
+            .push(
+                crate::widgets::status(
+                    post.status.clone(),
+                    post.avatar.clone(),
+                    post.reglog_avatar.clone(),
+                )
+                .map(pages::home::Message::Status)
+                .map(Message::Home)
+                .apply(widget::container)
+                .class(cosmic::theme::Container::Dialog),
+            )
+            .into()
+    }
+
+    fn account(&self, account: &Account) -> Element<Message> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -583,10 +621,21 @@ impl Page {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum ContextPage {
     #[default]
     About,
+    Account(Account),
+    Status(Post),
+}
+impl ContextPage {
+    fn title(&self) -> String {
+        match self {
+            ContextPage::About => fl!("about"),
+            ContextPage::Account(_) => fl!("profile"),
+            ContextPage::Status(_) => fl!("status"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

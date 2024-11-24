@@ -108,12 +108,6 @@ impl Notifications {
                 }
             }
             Message::Notification(message) => match message {
-                crate::widgets::notification::Message::OpenProfile(account_id) => {
-                    tracing::info!("open profile: {}", account_id);
-                }
-                crate::widgets::notification::Message::ExpandStatus(status_id) => {
-                    tracing::info!("expand status: {}", status_id);
-                }
                 crate::widgets::notification::Message::Status(message) => match message {
                     crate::widgets::status::Message::OpenProfile(account_id) => {
                         tracing::info!("open profile: {}", account_id)
@@ -132,6 +126,11 @@ impl Notifications {
                     }
                     crate::widgets::status::Message::Bookmark(status_id) => {
                         tracing::info!("bookmark: {}", status_id)
+                    }
+                    crate::widgets::status::Message::OpenLink(url) => {
+                        if let Err(err) = open::that_detached(url) {
+                            tracing::error!("{err}")
+                        }
                     }
                 },
             },

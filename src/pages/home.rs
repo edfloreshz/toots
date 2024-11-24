@@ -8,7 +8,7 @@ use cosmic::{
 use futures_util::{SinkExt, StreamExt};
 use mastodon_async::prelude::{Mastodon, Status};
 
-use crate::app;
+use crate::app::{self, ContextPage};
 
 use super::IMAGE_LOADER;
 
@@ -28,11 +28,11 @@ pub enum Message {
     Status(crate::widgets::status::Message),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Post {
-    status: Status,
-    avatar: Option<widget::image::Handle>,
-    reglog_avatar: Option<widget::image::Handle>,
+    pub status: Status,
+    pub avatar: Option<widget::image::Handle>,
+    pub reglog_avatar: Option<widget::image::Handle>,
 }
 
 impl Post {
@@ -83,7 +83,7 @@ impl Home {
     }
 
     pub fn update(&mut self, message: Message) -> Task<app::Message> {
-        let tasks = vec![];
+        let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
             Message::AppendPost(post) => {
@@ -107,6 +107,11 @@ impl Home {
                     tracing::info!("open profile: {}", account_id)
                 }
                 crate::widgets::status::Message::ExpandStatus(status_id) => {
+                    if let Some(post) = self.posts.iter().find(|s| s.status.id == status_id) {
+                        tasks.push(cosmic::task::message(app::Message::ToggleContextPage(
+                            ContextPage::Status(post.clone()),
+                        )));
+                    }
                     tracing::info!("expand status: {}", status_id)
                 }
                 crate::widgets::status::Message::Reply(status_id) => {
@@ -120,6 +125,11 @@ impl Home {
                 }
                 crate::widgets::status::Message::Bookmark(status_id) => {
                     tracing::info!("bookmark: {}", status_id)
+                }
+                crate::widgets::status::Message::OpenLink(url) => {
+                    if let Err(err) = open::that_detached(url) {
+                        tracing::error!("{err}")
+                    }
                 }
             },
         }
