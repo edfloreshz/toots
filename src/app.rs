@@ -2,24 +2,21 @@
 
 use crate::config::TootConfig;
 use crate::pages::home::Post;
-use crate::pages::IMAGE_LOADER;
+use crate::pages::Page;
 use crate::{fl, pages};
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config;
 use cosmic::iced::alignment::{Horizontal, Vertical};
-use cosmic::iced::{stream, Length, Subscription};
+use cosmic::iced::{Length, Subscription};
 use cosmic::widget::about::About;
 use cosmic::widget::menu::{ItemHeight, ItemWidth};
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{Application, ApplicationExt, Apply, Element};
-use futures_util::SinkExt;
-use futures_util::TryStreamExt;
 use mastodon_async::helpers::toml;
 use mastodon_async::prelude::Account;
 use mastodon_async::registration::Registered;
-use mastodon_async::{entities::event::Event, Data, Mastodon, Registration};
+use mastodon_async::{Data, Mastodon, Registration};
 use std::collections::HashMap;
-use std::fmt::Display;
 
 const REPOSITORY: &str = "https://github.com/edfloreshz/toot";
 const SUPPORT: &str = "https://github.com/edfloreshz/toot/issues";
@@ -42,7 +39,6 @@ pub struct AppModel {
 #[derive(Debug, Clone)]
 pub enum Message {
     Open(String),
-    SubscriptionChannel,
     ToggleContextPage(ContextPage),
     ToggleContextDrawer,
     UpdateConfig(TootConfig),
@@ -256,20 +252,10 @@ impl Application for AppModel {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        struct MySubscription;
-
-        let mut subscriptions = vec![
-            Subscription::run_with_id(
-                std::any::TypeId::of::<MySubscription>(),
-                cosmic::iced::stream::channel(4, move |mut channel| async move {
-                    _ = channel.send(Message::SubscriptionChannel).await;
-                    futures_util::future::pending().await
-                }),
-            ),
-            self.core()
-                .watch_config::<TootConfig>(Self::APP_ID)
-                .map(|update| Message::UpdateConfig(update.config)),
-        ];
+        let mut subscriptions = vec![self
+            .core()
+            .watch_config::<TootConfig>(Self::APP_ID)
+            .map(|update| Message::UpdateConfig(update.config))];
 
         if let Some(page) = self.nav.active_data::<Page>() {
             match page {
@@ -295,97 +281,7 @@ impl Application for AppModel {
         }
 
         if let Some(mastodon) = self.mastodon.clone() {
-            subscriptions.push(Subscription::run_with_id(
-                "posts",
-                stream::channel(1, |output| async move {
-                    let stream = mastodon.stream_user().await.unwrap();
-                    stream
-                        .try_for_each(|(event, _client)| {
-                            let mut output = output.clone();
-                            async move {
-                                match event {
-                                    Event::Update(ref status) => {
-                                        let handle = IMAGE_LOADER
-                                            .write()
-                                            .await
-                                            .get(&status.account.avatar_static)
-                                            .await;
-                                        let reblog_handle = if let Some(reblog) = &status.reblog {
-                                            IMAGE_LOADER
-                                                .write()
-                                                .await
-                                                .get(&reblog.account.avatar_static)
-                                                .await
-                                                .ok()
-                                        } else {
-                                            None
-                                        };
-                                        if let Err(err) = output
-                                            .send(Message::Home(pages::home::Message::PrependPost(
-                                                pages::home::Post::new(
-                                                    status.clone(),
-                                                    handle.ok(),
-                                                    reblog_handle,
-                                                ),
-                                            )))
-                                            .await
-                                        {
-                                            tracing::warn!("failed to send post: {}", err);
-                                        }
-                                    }
-                                    Event::Notification(ref notification) => {
-                                        let handle = IMAGE_LOADER
-                                            .write()
-                                            .await
-                                            .get(&notification.account.avatar_static)
-                                            .await;
-                                        let reblog_handle =
-                                            if let Some(status) = &notification.status {
-                                                IMAGE_LOADER
-                                                    .write()
-                                                    .await
-                                                    .get(&status.account.avatar_static)
-                                                    .await
-                                                    .ok()
-                                            } else {
-                                                None
-                                            };
-                                        if let Err(err) = output
-                                            .send(Message::Notifications(
-                                                pages::notifications::Message::PrependNotification(
-                                                    pages::notifications::Notification::new(
-                                                        notification.clone(),
-                                                        handle.ok(),
-                                                        reblog_handle,
-                                                    ),
-                                                ),
-                                            ))
-                                            .await
-                                        {
-                                            tracing::warn!("failed to send post: {}", err);
-                                        }
-                                    }
-                                    Event::Delete(ref id) => {
-                                        if let Err(err) = output
-                                            .send(Message::Home(pages::home::Message::DeletePost(
-                                                id.clone(),
-                                            )))
-                                            .await
-                                        {
-                                            tracing::warn!("failed to send post: {}", err);
-                                        }
-                                    }
-                                    Event::FiltersChanged => (),
-                                };
-                                Ok(())
-                            }
-                        })
-                        .await
-                        .unwrap();
-
-                    std::future::pending().await
-                }),
-            ));
+            subscriptions.push(crate::subscriptions::mastodon_user_events(mastodon));
         }
 
         Subscription::batch(subscriptions)
@@ -461,7 +357,6 @@ impl Application for AppModel {
                     tracing::error!("{err}")
                 }
             }
-            Message::SubscriptionChannel => {}
             Message::ToggleContextPage(context_page) => {
                 if self.context_page == context_page {
                     self.core.window.show_context = !self.core.window.show_context;
@@ -552,72 +447,8 @@ impl AppModel {
             .into()
     }
 
-    fn account(&self, account: &Account) -> Element<Message> {
+    fn account(&self, _account: &Account) -> Element<Message> {
         todo!()
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub enum Page {
-    #[default]
-    Home,
-    Notifications,
-    Search,
-    Favorites,
-    Bookmarks,
-    Hashtags,
-    Lists,
-    Explore,
-    Local,
-    Federated,
-}
-
-impl Display for Page {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Page::Home => write!(f, "{}", fl!("home")),
-            Page::Notifications => write!(f, "{}", fl!("notifications")),
-            Page::Search => write!(f, "{}", fl!("search")),
-            Page::Favorites => write!(f, "{}", fl!("favorites")),
-            Page::Bookmarks => write!(f, "{}", fl!("bookmarks")),
-            Page::Hashtags => write!(f, "{}", fl!("hashtags")),
-            Page::Lists => write!(f, "{}", fl!("lists")),
-            Page::Explore => write!(f, "{}", fl!("explore")),
-            Page::Local => write!(f, "{}", fl!("local")),
-            Page::Federated => write!(f, "{}", fl!("federated")),
-        }
-    }
-}
-
-impl Page {
-    pub fn variants() -> [Self; 10] {
-        [
-            Self::Home,
-            Self::Notifications,
-            Self::Search,
-            Self::Favorites,
-            Self::Bookmarks,
-            Self::Hashtags,
-            Self::Lists,
-            Self::Explore,
-            Self::Local,
-            Self::Federated,
-        ]
-    }
-
-    fn icon(&self) -> &str {
-        match self {
-            Page::Home => "user-home-symbolic",
-            Page::Notifications => "emblem-important-symbolic",
-            Page::Search => "folder-saved-search-symbolic",
-            Page::Favorites => "starred-symbolic",
-            Page::Bookmarks => "bookmark-new-symbolic",
-            Page::Hashtags => "lang-include-symbolic",
-            Page::Lists => "view-list-symbolic",
-            Page::Explore => "find-location-symbolic",
-            Page::Local => "network-server-symbolic",
-            Page::Federated => "network-workgroup-symbolic",
-        }
     }
 }
 

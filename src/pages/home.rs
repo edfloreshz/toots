@@ -1,16 +1,13 @@
 use std::collections::{HashSet, VecDeque};
 
 use cosmic::{
-    iced::{stream, Subscription},
+    iced::Subscription,
     iced_widget::scrollable::{Direction, Scrollbar},
     widget, Apply, Element, Task,
 };
-use futures_util::{SinkExt, StreamExt};
 use mastodon_async::prelude::{Mastodon, Status};
 
 use crate::app::{self, ContextPage};
-
-use super::IMAGE_LOADER;
 
 #[derive(Debug, Clone)]
 pub struct Home {
@@ -139,53 +136,7 @@ impl Home {
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![];
         if let Some(mastodon) = self.mastodon.clone() {
-            subscriptions.push(Subscription::run_with_id(
-                "timeline",
-                stream::channel(1, |mut output| async move {
-                    tokio::task::spawn(async move {
-                        let mut stream = Box::pin(
-                            mastodon
-                                .get_home_timeline()
-                                .await
-                                .unwrap()
-                                .items_iter()
-                                .take(100),
-                        );
-                        while let Some(status) = stream.next().await {
-                            let handle = IMAGE_LOADER
-                                .write()
-                                .await
-                                .get(&status.account.avatar_static)
-                                .await;
-                            let reblog_handle = if let Some(reblog) = &status.reblog {
-                                IMAGE_LOADER
-                                    .write()
-                                    .await
-                                    .get(&reblog.account.avatar_static)
-                                    .await
-                                    .ok()
-                            } else {
-                                None
-                            };
-
-                            if let Err(err) = output
-                                .send(Message::AppendPost(Post::new(
-                                    status,
-                                    handle.ok(),
-                                    reblog_handle,
-                                )))
-                                .await
-                            {
-                                tracing::warn!("failed to send set avatar: {}", err);
-                            }
-                        }
-                    })
-                    .await
-                    .unwrap();
-
-                    std::future::pending().await
-                }),
-            ));
+            subscriptions.push(crate::subscriptions::mastodon_home_timeline(mastodon));
         }
 
         Subscription::batch(subscriptions)

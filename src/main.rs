@@ -8,6 +8,8 @@ mod error;
 mod i18n;
 mod pages;
 mod settings;
+mod subscriptions;
+mod utils;
 mod widgets;
 
 fn main() -> Result<(), Error> {

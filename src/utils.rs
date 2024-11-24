@@ -5,17 +5,14 @@ use cosmic::{iced_core::image, widget};
 
 use crate::error::Error;
 
-pub mod home;
-pub mod notifications;
+pub static IMAGE_CACHE: LazyLock<RwLock<ImageCache>> =
+    LazyLock::new(|| RwLock::new(ImageCache::new()));
 
-pub static IMAGE_LOADER: LazyLock<RwLock<ImageLoader>> =
-    LazyLock::new(|| RwLock::new(ImageLoader::new()));
-
-pub struct ImageLoader {
+pub struct ImageCache {
     images: HashMap<String, widget::image::Handle>,
 }
 
-impl ImageLoader {
+impl ImageCache {
     pub fn new() -> Self {
         Self {
             images: HashMap::new(),
