@@ -116,7 +116,7 @@ impl Application for AppModel {
         if mastodon.is_some() {
             tasks.push(
                 app.home
-                    .update(pages::home::Message::FetchTimeline(app.mastodon.clone())),
+                    .update(pages::home::Message::SetClient(app.mastodon.clone())),
             );
         }
 
@@ -153,7 +153,7 @@ impl Application for AppModel {
         match self.nav.data::<Page>(id).unwrap() {
             Page::Home => tasks.push(
                 self.home
-                    .update(pages::home::Message::FetchTimeline(self.mastodon.clone())),
+                    .update(pages::home::Message::SetClient(self.mastodon.clone())),
             ),
             Page::Notifications => todo!(),
             Page::Search => todo!(),
@@ -210,7 +210,7 @@ impl Application for AppModel {
     fn subscription(&self) -> Subscription<Self::Message> {
         struct MySubscription;
 
-        Subscription::batch(vec![
+        let mut subscriptions = vec![
             Subscription::run_with_id(
                 std::any::TypeId::of::<MySubscription>(),
                 cosmic::iced::stream::channel(4, move |mut channel| async move {
@@ -221,7 +221,17 @@ impl Application for AppModel {
             self.core()
                 .watch_config::<TootConfig>(Self::APP_ID)
                 .map(|update| Message::UpdateConfig(update.config)),
-        ])
+        ];
+
+        if let Some(page) = self.nav.active_data::<Page>() {
+            subscriptions.push(
+                self.home
+                    .subscription(*page == Page::Home)
+                    .map(|message| Message::Home(message)),
+            );
+        }
+
+        Subscription::batch(subscriptions)
     }
 
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {

@@ -6,4 +6,6 @@ pub enum Error {
     Mastodon(#[from] mastodon_async::Error),
     #[error("Iced error: {0}")]
     Iced(#[from] cosmic::iced::Error),
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
