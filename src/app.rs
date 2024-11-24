@@ -13,7 +13,7 @@ use cosmic::{Application, ApplicationExt, Apply, Element};
 use futures_util::SinkExt;
 use mastodon_async::helpers::toml;
 use mastodon_async::registration::Registered;
-use mastodon_async::{Mastodon, Registration};
+use mastodon_async::{Data, Mastodon, Registration};
 use std::collections::HashMap;
 use std::fmt::Display;
 
@@ -93,9 +93,20 @@ impl Application for AppModel {
             .developers([("Eduardo Flores", "edfloreshz@proton.me")])
             .links([(fl!("repository"), REPOSITORY), (fl!("support"), SUPPORT)]);
 
-        let mastodon = toml::from_file("mastodon-data.toml")
-            .ok()
-            .map(|data| Mastodon::from(data));
+        let mastodon = match keytar::get_password(Self::APP_ID, "mastodon-data") {
+            Ok(data) => {
+                if data.success {
+                    let data: Data = toml::from_str(&data.password).unwrap();
+                    Some(Mastodon::from(data))
+                } else {
+                    None
+                }
+            }
+            Err(err) => {
+                tracing::error!("{err}");
+                None
+            }
+        };
 
         let mut app = AppModel {
             core,
@@ -288,9 +299,14 @@ impl Application for AppModel {
                 }
             }
             Message::StoreMastodonData(mastodon) => {
-                toml::to_file(&mastodon.data, "mastodon-data.toml").unwrap();
-                self.mastodon = Some(mastodon.clone());
-                tasks.push(self.on_nav_select(self.nav.active()));
+                let data = &toml::to_string(&mastodon.data).unwrap();
+                match keytar::set_password(Self::APP_ID, "mastodon-data", data) {
+                    Ok(_) => {
+                        self.mastodon = Some(mastodon.clone());
+                        tasks.push(self.on_nav_select(self.nav.active()));
+                    }
+                    Err(err) => tracing::error!("{err}"),
+                }
             }
             Message::CodeUpdate(code) => self.code = code,
             Message::Open(url) => {
