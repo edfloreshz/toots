@@ -6,8 +6,9 @@ use cosmic::{iced_core::image, widget};
 use crate::error::Error;
 
 pub mod home;
+pub mod notifications;
 
-static IMAGE_LOADER: LazyLock<RwLock<ImageLoader>> =
+pub static IMAGE_LOADER: LazyLock<RwLock<ImageLoader>> =
     LazyLock::new(|| RwLock::new(ImageLoader::new()));
 
 pub struct ImageLoader {

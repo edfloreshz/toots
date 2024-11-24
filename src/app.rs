@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: {{LICENSE}}
 
 use crate::config::TootConfig;
+use crate::pages::IMAGE_LOADER;
 use crate::{fl, pages};
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config;
 use cosmic::iced::alignment::{Horizontal, Vertical};
-use cosmic::iced::{Length, Subscription};
+use cosmic::iced::{stream, Length, Subscription};
 use cosmic::widget::about::About;
 use cosmic::widget::menu::{ItemHeight, ItemWidth};
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{Application, ApplicationExt, Apply, Element};
 use futures_util::SinkExt;
+use futures_util::TryStreamExt;
 use mastodon_async::helpers::toml;
 use mastodon_async::registration::Registered;
-use mastodon_async::{Data, Mastodon, Registration};
+use mastodon_async::{entities::event::Event, Data, Mastodon, Registration};
 use std::collections::HashMap;
 use std::fmt::Display;
 
@@ -32,6 +34,7 @@ pub struct AppModel {
     registration: Option<Registered>,
     mastodon: Option<Mastodon>,
     home: pages::home::Home,
+    notifications: pages::notifications::Notifications,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +51,7 @@ pub enum Message {
     CodeUpdate(String),
     StoreRegistration(Option<Registered>),
     Home(pages::home::Message),
+    Notifications(pages::notifications::Message),
 }
 
 pub struct Flags {
@@ -120,6 +124,7 @@ impl Application for AppModel {
             registration: None,
             mastodon: mastodon.clone(),
             home: pages::home::Home::new(),
+            notifications: pages::notifications::Notifications::new(),
         };
 
         let mut tasks = vec![app.update_title()];
@@ -162,19 +167,32 @@ impl Application for AppModel {
         self.nav.activate(id);
         let mut tasks = vec![];
         match self.nav.data::<Page>(id).unwrap() {
-            Page::Home => tasks.push(
-                self.home
-                    .update(pages::home::Message::SetClient(self.mastodon.clone())),
-            ),
-            Page::Notifications => todo!(),
-            Page::Search => todo!(),
-            Page::Favorites => todo!(),
-            Page::Bookmarks => todo!(),
-            Page::Hashtags => todo!(),
-            Page::Lists => todo!(),
-            Page::Explore => todo!(),
-            Page::Local => todo!(),
-            Page::Federated => todo!(),
+            Page::Home => {
+                if self.home.mastodon.is_none() {
+                    tasks.push(
+                        self.home
+                            .update(pages::home::Message::SetClient(self.mastodon.clone())),
+                    )
+                }
+            }
+            Page::Notifications => {
+                if self.notifications.mastodon.is_none() {
+                    tasks.push(
+                        self.notifications
+                            .update(pages::notifications::Message::SetClient(
+                                self.mastodon.clone(),
+                            )),
+                    )
+                }
+            }
+            Page::Search => (),
+            Page::Favorites => (),
+            Page::Bookmarks => (),
+            Page::Hashtags => (),
+            Page::Lists => (),
+            Page::Explore => (),
+            Page::Local => (),
+            Page::Federated => (),
         };
         tasks.push(self.update_title());
         Task::batch(tasks)
@@ -198,6 +216,7 @@ impl Application for AppModel {
             Some(_) => match self.nav.active_data::<Page>() {
                 Some(page) => match page {
                     Page::Home => self.home.view().map(Message::Home),
+                    Page::Notifications => self.notifications.view().map(Message::Notifications),
                     _ => widget::text("Not yet implemented").into(),
                 },
                 None => widget::text("Select a page").into(),
@@ -235,11 +254,120 @@ impl Application for AppModel {
         ];
 
         if let Some(page) = self.nav.active_data::<Page>() {
-            subscriptions.push(
-                self.home
-                    .subscription(*page == Page::Home)
-                    .map(|message| Message::Home(message)),
-            );
+            match page {
+                Page::Home => subscriptions.push(
+                    self.home
+                        .subscription()
+                        .map(|message| Message::Home(message)),
+                ),
+                Page::Notifications => subscriptions.push(
+                    self.notifications
+                        .subscription()
+                        .map(|message| Message::Notifications(message)),
+                ),
+                Page::Search => (),
+                Page::Favorites => (),
+                Page::Bookmarks => (),
+                Page::Hashtags => (),
+                Page::Lists => (),
+                Page::Explore => (),
+                Page::Local => (),
+                Page::Federated => (),
+            }
+        }
+
+        if let Some(mastodon) = self.mastodon.clone() {
+            subscriptions.push(Subscription::run_with_id(
+                "posts",
+                stream::channel(1, |output| async move {
+                    let stream = mastodon.stream_user().await.unwrap();
+                    stream
+                        .try_for_each(|(event, _client)| {
+                            let mut output = output.clone();
+                            async move {
+                                match event {
+                                    Event::Update(ref status) => {
+                                        let handle = IMAGE_LOADER
+                                            .write()
+                                            .await
+                                            .get(&status.account.avatar_static)
+                                            .await;
+                                        let reblog_handle = if let Some(reblog) = &status.reblog {
+                                            IMAGE_LOADER
+                                                .write()
+                                                .await
+                                                .get(&reblog.account.avatar_static)
+                                                .await
+                                                .ok()
+                                        } else {
+                                            None
+                                        };
+                                        if let Err(err) = output
+                                            .send(Message::Home(pages::home::Message::PrependPost(
+                                                pages::home::Post::new(
+                                                    status.clone(),
+                                                    handle.ok(),
+                                                    reblog_handle,
+                                                ),
+                                            )))
+                                            .await
+                                        {
+                                            tracing::warn!("failed to send post: {}", err);
+                                        }
+                                    }
+                                    Event::Notification(ref notification) => {
+                                        let handle = IMAGE_LOADER
+                                            .write()
+                                            .await
+                                            .get(&notification.account.avatar_static)
+                                            .await;
+                                        let reblog_handle =
+                                            if let Some(status) = &notification.status {
+                                                IMAGE_LOADER
+                                                    .write()
+                                                    .await
+                                                    .get(&status.account.avatar_static)
+                                                    .await
+                                                    .ok()
+                                            } else {
+                                                None
+                                            };
+                                        if let Err(err) = output
+                                            .send(Message::Notifications(
+                                                pages::notifications::Message::PrependNotification(
+                                                    pages::notifications::Notification::new(
+                                                        notification.clone(),
+                                                        handle.ok(),
+                                                        reblog_handle,
+                                                    ),
+                                                ),
+                                            ))
+                                            .await
+                                        {
+                                            tracing::warn!("failed to send post: {}", err);
+                                        }
+                                    }
+                                    Event::Delete(ref id) => {
+                                        if let Err(err) = output
+                                            .send(Message::Home(pages::home::Message::DeletePost(
+                                                id.clone(),
+                                            )))
+                                            .await
+                                        {
+                                            tracing::warn!("failed to send post: {}", err);
+                                        }
+                                    }
+                                    Event::FiltersChanged => (),
+                                };
+                                Ok(())
+                            }
+                        })
+                        .await
+                        .unwrap();
+
+                    std::future::pending().await
+                }),
+            ));
         }
 
         Subscription::batch(subscriptions)
@@ -249,6 +377,7 @@ impl Application for AppModel {
         let mut tasks = vec![];
         match message {
             Message::Home(message) => tasks.push(self.home.update(message)),
+            Message::Notifications(message) => tasks.push(self.notifications.update(message)),
             Message::ServerUpdate(server) => {
                 if let Some(ref handler) = self.handler {
                     match self.config.set_server(handler, server.clone()) {
@@ -443,7 +572,7 @@ impl Page {
             Page::Home => "user-home-symbolic",
             Page::Notifications => "emblem-important-symbolic",
             Page::Search => "folder-saved-search-symbolic",
-            Page::Favorites => "emoji-body-symbolic",
+            Page::Favorites => "starred-symbolic",
             Page::Bookmarks => "bookmark-new-symbolic",
             Page::Hashtags => "lang-include-symbolic",
             Page::Lists => "view-list-symbolic",

@@ -8,6 +8,7 @@ mod error;
 mod i18n;
 mod pages;
 mod settings;
+mod widgets;
 
 fn main() -> Result<(), Error> {
     settings::init();

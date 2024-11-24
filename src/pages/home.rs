@@ -1,15 +1,12 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use cosmic::{
     iced::{stream, Subscription},
     iced_widget::scrollable::{Direction, Scrollbar},
     widget, Apply, Element, Task,
 };
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
-use mastodon_async::{
-    entities::event::Event,
-    prelude::{Mastodon, Status},
-};
+use futures_util::{SinkExt, StreamExt};
+use mastodon_async::prelude::{Mastodon, Status};
 
 use crate::app;
 
@@ -17,8 +14,9 @@ use super::IMAGE_LOADER;
 
 #[derive(Debug, Clone)]
 pub struct Home {
-    mastodon: Option<Mastodon>,
+    pub mastodon: Option<Mastodon>,
     posts: VecDeque<Post>,
+    post_ids: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +25,7 @@ pub enum Message {
     AppendPost(Post),
     PrependPost(Post),
     DeletePost(String),
+    Status(crate::widgets::status::Message),
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +53,7 @@ impl Home {
     pub fn new() -> Self {
         Self {
             posts: VecDeque::new(),
+            post_ids: HashSet::new(),
             mastodon: None,
         }
     }
@@ -64,11 +64,12 @@ impl Home {
             .posts
             .iter()
             .map(|post| {
-                Self::status(
+                crate::widgets::status(
                     post.status.clone(),
                     post.avatar.clone(),
                     post.reglog_avatar.clone(),
                 )
+                .map(Message::Status)
             })
             .collect();
 
@@ -85,172 +86,98 @@ impl Home {
         let tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
-            Message::AppendPost(post) => self.posts.push_back(post),
-            Message::PrependPost(post) => self.posts.push_front(post),
-            Message::DeletePost(id) => self.posts.retain(|post| post.status.id.to_string() != id),
+            Message::AppendPost(post) => {
+                if !self.post_ids.contains(&post.status.id.to_string()) {
+                    self.posts.push_back(post.clone());
+                    self.post_ids.insert(post.status.id.to_string());
+                }
+            }
+            Message::PrependPost(post) => {
+                if !self.post_ids.contains(&post.status.id.to_string()) {
+                    self.posts.push_front(post.clone());
+                    self.post_ids.insert(post.status.id.to_string());
+                }
+            }
+            Message::DeletePost(id) => {
+                self.post_ids.remove(&id);
+                self.posts.retain(|post| post.status.id.to_string() != id)
+            }
+            Message::Status(status_msg) => match status_msg {
+                crate::widgets::status::Message::OpenProfile(account_id) => {
+                    tracing::info!("open profile: {}", account_id)
+                }
+                crate::widgets::status::Message::ExpandStatus(status_id) => {
+                    tracing::info!("expand status: {}", status_id)
+                }
+                crate::widgets::status::Message::Reply(status_id) => {
+                    tracing::info!("reply: {}", status_id)
+                }
+                crate::widgets::status::Message::Favorite(status_id) => {
+                    tracing::info!("favorite: {}", status_id)
+                }
+                crate::widgets::status::Message::Boost(status_id) => {
+                    tracing::info!("boost: {}", status_id)
+                }
+                crate::widgets::status::Message::Bookmark(status_id) => {
+                    tracing::info!("bookmark: {}", status_id)
+                }
+            },
         }
         Task::batch(tasks)
     }
 
-    pub fn subscription(&self, valid_page: bool) -> Subscription<Message> {
+    pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![];
-        if valid_page {
-            if let Some(mastodon) = self.mastodon.clone() {
-                subscriptions.push(Subscription::run_with_id(
-                    "timeline",
-                    stream::channel(1, |mut output| async move {
-                        tokio::task::spawn(async move {
-                            let mut stream = Box::pin(
-                                mastodon
-                                    .get_home_timeline()
-                                    .await
-                                    .unwrap()
-                                    .items_iter()
-                                    .take(100),
-                            );
-                            while let Some(status) = stream.next().await {
-                                let handle = IMAGE_LOADER
+        if let Some(mastodon) = self.mastodon.clone() {
+            subscriptions.push(Subscription::run_with_id(
+                "timeline",
+                stream::channel(1, |mut output| async move {
+                    tokio::task::spawn(async move {
+                        let mut stream = Box::pin(
+                            mastodon
+                                .get_home_timeline()
+                                .await
+                                .unwrap()
+                                .items_iter()
+                                .take(100),
+                        );
+                        while let Some(status) = stream.next().await {
+                            let handle = IMAGE_LOADER
+                                .write()
+                                .await
+                                .get(&status.account.avatar_static)
+                                .await;
+                            let reblog_handle = if let Some(reblog) = &status.reblog {
+                                IMAGE_LOADER
                                     .write()
                                     .await
-                                    .get(&status.account.avatar_static)
-                                    .await;
-                                let reblog_handle = if let Some(reblog) = &status.reblog {
-                                    IMAGE_LOADER
-                                        .write()
-                                        .await
-                                        .get(&reblog.account.avatar_static)
-                                        .await
-                                        .ok()
-                                } else {
-                                    None
-                                };
-
-                                if let Err(err) = output
-                                    .send(Message::AppendPost(Post::new(
-                                        status,
-                                        handle.ok(),
-                                        reblog_handle,
-                                    )))
+                                    .get(&reblog.account.avatar_static)
                                     .await
-                                {
-                                    tracing::warn!("failed to send set avatar: {}", err);
-                                }
+                                    .ok()
+                            } else {
+                                None
+                            };
+
+                            if let Err(err) = output
+                                .send(Message::AppendPost(Post::new(
+                                    status,
+                                    handle.ok(),
+                                    reblog_handle,
+                                )))
+                                .await
+                            {
+                                tracing::warn!("failed to send set avatar: {}", err);
                             }
-                        })
-                        .await
-                        .unwrap();
+                        }
+                    })
+                    .await
+                    .unwrap();
 
-                        std::future::pending().await
-                    }),
-                ));
-            }
-
-            if let Some(mastodon) = self.mastodon.clone() {
-                subscriptions.push(Subscription::run_with_id(
-                    "posts",
-                    stream::channel(1, |output| async move {
-                        let stream = mastodon.stream_user().await.unwrap();
-                        stream
-                            .try_for_each(|(event, _client)| {
-                                let mut output = output.clone();
-                                async move {
-                                    match event {
-                                        Event::Update(ref status) => {
-                                            let handle = IMAGE_LOADER
-                                                .write()
-                                                .await
-                                                .get(&status.account.avatar_static)
-                                                .await;
-                                            let reblog_handle = if let Some(reblog) = &status.reblog
-                                            {
-                                                IMAGE_LOADER
-                                                    .write()
-                                                    .await
-                                                    .get(&reblog.account.avatar_static)
-                                                    .await
-                                                    .ok()
-                                            } else {
-                                                None
-                                            };
-                                            if let Err(err) = output
-                                                .send(Message::PrependPost(Post::new(
-                                                    status.clone(),
-                                                    handle.ok(),
-                                                    reblog_handle,
-                                                )))
-                                                .await
-                                            {
-                                                tracing::warn!("failed to send post: {}", err);
-                                            }
-                                        }
-                                        Event::Notification(ref _notification) => (),
-                                        Event::Delete(ref id) => {
-                                            if let Err(err) =
-                                                output.send(Message::DeletePost(id.clone())).await
-                                            {
-                                                tracing::warn!("failed to send post: {}", err);
-                                            }
-                                        }
-                                        Event::FiltersChanged => (),
-                                    };
-                                    Ok(())
-                                }
-                            })
-                            .await
-                            .unwrap();
-
-                        std::future::pending().await
-                    }),
-                ));
-            }
+                    std::future::pending().await
+                }),
+            ));
         }
 
         Subscription::batch(subscriptions)
-    }
-
-    fn status<'a>(
-        status: Status,
-        avatar: Option<widget::image::Handle>,
-        reblog_avatar: Option<widget::image::Handle>,
-    ) -> Element<'a, Message> {
-        let spacing = cosmic::theme::active().cosmic().spacing;
-        let column = if let Some(reblog) = status.reblog {
-            let display_name = format!("{} boosted", status.account.display_name);
-            widget::column()
-                .push(
-                    widget::button::custom(
-                        widget::row()
-                            .push_maybe(avatar.map(|handle| widget::image(handle).width(20)))
-                            .push(widget::text(display_name))
-                            .spacing(spacing.space_xs),
-                    )
-                    .padding(spacing.space_xxxs),
-                )
-                .push(Self::status(*reblog.clone(), reblog_avatar, None))
-                .spacing(spacing.space_xs)
-                .apply(widget::container)
-        } else {
-            let display_name = format!(
-                "{} @{}",
-                status.account.display_name, status.account.username
-            );
-            let content = html2text::config::rich()
-                .string_from_read(status.content.as_bytes(), 700)
-                .unwrap();
-            widget::row()
-                .push_maybe(avatar.map(|handle| widget::image(handle).width(50)))
-                .push(
-                    widget::column()
-                        .push(widget::text(display_name).class(cosmic::style::Text::Accent))
-                        .push(widget::text(content))
-                        .spacing(spacing.space_xxs),
-                )
-                .spacing(spacing.space_xs)
-                .apply(widget::container)
-        };
-
-        widget::settings::flex_item_row(vec![column.into()])
-            .padding(spacing.space_xs)
-            .into()
     }
 }
