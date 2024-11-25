@@ -211,7 +211,7 @@ impl Application for AppModel {
                     .title(self.context_page.title())
             }
             ContextPage::Status((status, handles)) => context_drawer::context_drawer(
-                self.status(status, &handles),
+                self.status(status, handles.clone()),
                 Message::ToggleContextDrawer,
             )
             .title(self.context_page.title()),
@@ -302,7 +302,9 @@ impl Application for AppModel {
             Message::StoreRegistration(registration) => {
                 if let Some(ref registration) = registration {
                     if let Ok(url) = registration.authorize_url() {
-                        _ = open::that_detached(url);
+                        if let Err(err) = open::that_detached(url) {
+                            tracing::error!("{err}");
+                        }
                     }
                 }
                 self.registration = registration;
@@ -420,10 +422,10 @@ impl AppModel {
             .into()
     }
 
-    fn status(&self, status: &Status, handles: &StatusHandles) -> Element<Message> {
+    fn status(&self, status: &Status, handles: StatusHandles) -> Element<Message> {
         widget::column()
             .push(
-                crate::widgets::status(status, handles)
+                crate::widgets::status(status, &handles)
                     .map(pages::home::Message::Status)
                     .map(Message::Home)
                     .apply(widget::container)

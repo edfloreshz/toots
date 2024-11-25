@@ -6,7 +6,7 @@ use cosmic::{
     widget::{self, image::Handle},
     Apply, Element, Task,
 };
-use mastodon_async::prelude::{Mastodon, Status};
+use mastodon_async::prelude::{Attachment, Mastodon, Status};
 
 use crate::{
     app::{self, ContextPage},
@@ -31,7 +31,9 @@ pub enum Message {
     DeletePost(String),
     Status(crate::widgets::status::Message),
     ResolveAvatars(Status),
+    ResolveMedia(Vec<Attachment>),
     SetAvatars(Status, Option<Handle>, Option<Handle>),
+    SetMedia(String, Handle),
     LoadMore(bool),
 }
 
@@ -83,14 +85,18 @@ impl Home {
                 self.loading = false;
                 self.statuses.push_back(status.clone());
                 if !self.handles.contains_key(&status.account.avatar) {
-                    tasks.push(self.update(Message::ResolveAvatars(status)));
+                    tasks.push(self.update(Message::ResolveAvatars(status.clone())));
+                    tasks
+                        .push(self.update(Message::ResolveMedia(status.media_attachments.clone())));
                 }
             }
             Message::PrependPost(status) => {
                 self.loading = false;
                 self.statuses.push_front(status.clone());
                 if !self.handles.contains_key(&status.account.avatar) {
-                    tasks.push(self.update(Message::ResolveAvatars(status)));
+                    tasks.push(self.update(Message::ResolveAvatars(status.clone())));
+                    tasks
+                        .push(self.update(Message::ResolveMedia(status.media_attachments.clone())));
                 }
             }
             Message::DeletePost(id) => self.statuses.retain(|status| status.id.to_string() != id),
@@ -99,7 +105,7 @@ impl Home {
                 match (handles.primary, handles.secondary) {
                     (None, None) => {
                         tasks.push(Task::perform(
-                            async {
+                            async move {
                                 let handle = utils::get_image(&status.account.avatar).await;
                                 let reblog_handle = if let Some(reblog) = &status.reblog {
                                     utils::get_image(&reblog.account.avatar).await.ok()
@@ -125,6 +131,30 @@ impl Home {
                     ))),
                 }
             }
+            Message::ResolveMedia(attachments) => {
+                let mut fetch_tasks = Vec::new();
+                for attachment in attachments.iter() {
+                    let url = attachment.preview_url.clone();
+                    if !self.handles.contains_key(&url) {
+                        fetch_tasks.push(Task::perform(
+                            async move {
+                                if let Ok(handle) = utils::get_image(&url).await {
+                                    Some((url.clone(), handle))
+                                } else {
+                                    None
+                                }
+                            },
+                            |result| match result {
+                                Some((url, handle)) => cosmic::app::message::app(
+                                    app::Message::Home(Message::SetMedia(url, handle)),
+                                ),
+                                None => cosmic::app::message::none(),
+                            },
+                        ));
+                    }
+                }
+                tasks.extend(fetch_tasks);
+            }
             Message::SetAvatars(status, status_avatar, reblog_avatar) => {
                 if let Some(status_avatar) = status_avatar {
                     self.handles.insert(status.account.avatar, status_avatar);
@@ -133,6 +163,9 @@ impl Home {
                     self.handles
                         .insert(status.reblog.unwrap().account.avatar, reblog_avatar);
                 }
+            }
+            Message::SetMedia(url, handle) => {
+                self.handles.insert(url, handle);
             }
             Message::Status(status_msg) => match status_msg {
                 crate::widgets::status::Message::OpenProfile(url) => {
