@@ -2,46 +2,52 @@ use std::collections::{HashSet, VecDeque};
 
 use cosmic::{
     iced::Subscription,
+    iced_core::image,
     iced_widget::scrollable::{Direction, Scrollbar},
     widget, Apply, Element, Task,
 };
-use mastodon_async::prelude::{Mastodon, Status};
+use mastodon_async::prelude::{Mastodon, Status as MastodonStatus, StatusId};
 
-use crate::app::{self, ContextPage};
+use crate::{
+    app::{self, ContextPage},
+    utils::IMAGE_CACHE,
+};
 
 #[derive(Debug, Clone)]
 pub struct Home {
     pub mastodon: Option<Mastodon>,
-    posts: VecDeque<Post>,
+    posts: VecDeque<Status>,
     post_ids: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     SetClient(Option<Mastodon>),
-    AppendPost(Post),
-    PrependPost(Post),
+    AppendPost(MastodonStatus),
+    PrependPost(MastodonStatus),
     DeletePost(String),
     Status(crate::widgets::status::Message),
+    ResolveAvatar(StatusId),
+    SetAvatars(StatusId, Option<image::Handle>, Option<image::Handle>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Post {
-    pub status: Status,
-    pub avatar: Option<widget::image::Handle>,
-    pub reglog_avatar: Option<widget::image::Handle>,
+pub struct Status {
+    pub status: MastodonStatus,
+    pub status_avatar: widget::image::Handle,
+    pub reblog_avatar: widget::image::Handle,
 }
 
-impl Post {
+impl Status {
     pub fn new(
-        status: Status,
-        avatar: Option<widget::image::Handle>,
+        status: MastodonStatus,
+        status_avatar: Option<widget::image::Handle>,
         reglog_avatar: Option<widget::image::Handle>,
     ) -> Self {
         Self {
             status,
-            avatar,
-            reglog_avatar,
+            status_avatar: status_avatar.unwrap_or(image::Handle::from_bytes(vec![])),
+            reblog_avatar: reglog_avatar.unwrap_or(image::Handle::from_bytes(vec![])),
         }
     }
 }
@@ -61,11 +67,11 @@ impl Home {
             .posts
             .iter()
             .map(|post| {
-                crate::widgets::status(
+                crate::widgets::status(Status::new(
                     post.status.clone(),
-                    post.avatar.clone(),
-                    post.reglog_avatar.clone(),
-                )
+                    Some(post.status_avatar.clone()),
+                    Some(post.reblog_avatar.clone()),
+                ))
                 .map(Message::Status)
             })
             .collect();
@@ -83,21 +89,62 @@ impl Home {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
-            Message::AppendPost(post) => {
-                if !self.post_ids.contains(&post.status.id.to_string()) {
-                    self.posts.push_back(post.clone());
-                    self.post_ids.insert(post.status.id.to_string());
+            Message::AppendPost(status) => {
+                if !self.post_ids.contains(&status.id.to_string()) {
+                    self.posts
+                        .push_back(Status::new(status.clone(), None, None));
+                    self.post_ids.insert(status.id.to_string());
+                    tasks.push(self.update(Message::ResolveAvatar(status.id.clone())));
                 }
             }
-            Message::PrependPost(post) => {
-                if !self.post_ids.contains(&post.status.id.to_string()) {
-                    self.posts.push_front(post.clone());
-                    self.post_ids.insert(post.status.id.to_string());
+            Message::PrependPost(status) => {
+                if !self.post_ids.contains(&status.id.to_string()) {
+                    self.posts
+                        .push_front(Status::new(status.clone(), None, None));
+                    self.post_ids.insert(status.id.to_string());
+                    tasks.push(self.update(Message::ResolveAvatar(status.id.clone())));
                 }
             }
             Message::DeletePost(id) => {
                 self.post_ids.remove(&id);
                 self.posts.retain(|post| post.status.id.to_string() != id)
+            }
+            Message::ResolveAvatar(status_id) => {
+                let status = self
+                    .posts
+                    .iter()
+                    .find(|s| s.status.id == status_id)
+                    .map(|status| status.status.clone())
+                    .expect("status not found");
+                tasks.push(Task::perform(
+                    async move {
+                        let mut image_cache = IMAGE_CACHE.write().await;
+                        let handle = image_cache.get(&status.account.avatar_static).await;
+                        let reblog_handle = if let Some(reblog) = &status.reblog {
+                            image_cache.get(&reblog.account.avatar_static).await.ok()
+                        } else {
+                            None
+                        };
+
+                        (status_id, handle.ok(), reblog_handle)
+                    },
+                    |(id, status_avatar, reblog_avatar)| {
+                        cosmic::app::message::app(app::Message::Home(Message::SetAvatars(
+                            id,
+                            status_avatar,
+                            reblog_avatar,
+                        )))
+                    },
+                ));
+            }
+            Message::SetAvatars(id, status_avatar, reblog_avatar) => {
+                let status = self.posts.iter_mut().find(|s| s.status.id == id);
+                if let Some(status) = status {
+                    status.status_avatar =
+                        status_avatar.unwrap_or(image::Handle::from_bytes(vec![]));
+                    status.reblog_avatar =
+                        reblog_avatar.unwrap_or(image::Handle::from_bytes(vec![]));
+                }
             }
             Message::Status(status_msg) => match status_msg {
                 crate::widgets::status::Message::OpenProfile(account_id) => {

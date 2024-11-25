@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: {{LICENSE}}
 
 use crate::config::TootConfig;
-use crate::pages::home::Post;
+use crate::pages::home::Status;
 use crate::pages::Page;
 use crate::{fl, pages};
 use cosmic::app::{context_drawer, Core, Task};
@@ -257,28 +257,16 @@ impl Application for AppModel {
             .watch_config::<TootConfig>(Self::APP_ID)
             .map(|update| Message::UpdateConfig(update.config))];
 
-        if let Some(page) = self.nav.active_data::<Page>() {
-            match page {
-                Page::Home => subscriptions.push(
-                    self.home
-                        .subscription()
-                        .map(|message| Message::Home(message)),
-                ),
-                Page::Notifications => subscriptions.push(
-                    self.notifications
-                        .subscription()
-                        .map(|message| Message::Notifications(message)),
-                ),
-                Page::Search => (),
-                Page::Favorites => (),
-                Page::Bookmarks => (),
-                Page::Hashtags => (),
-                Page::Lists => (),
-                Page::Explore => (),
-                Page::Local => (),
-                Page::Federated => (),
-            }
-        }
+        subscriptions.push(
+            self.home
+                .subscription()
+                .map(|message| Message::Home(message)),
+        );
+        subscriptions.push(
+            self.notifications
+                .subscription()
+                .map(|message| Message::Notifications(message)),
+        );
 
         if let Some(mastodon) = self.mastodon.clone() {
             subscriptions.push(crate::subscriptions::mastodon_user_events(mastodon));
@@ -431,14 +419,14 @@ impl AppModel {
             .into()
     }
 
-    fn status(&self, post: &Post) -> Element<Message> {
+    fn status(&self, post: &Status) -> Element<Message> {
         widget::column()
             .push(
-                crate::widgets::status(
+                crate::widgets::status(pages::home::Status::new(
                     post.status.clone(),
-                    post.avatar.clone(),
-                    post.reglog_avatar.clone(),
-                )
+                    Some(post.status_avatar.clone()),
+                    Some(post.reblog_avatar.clone()),
+                ))
                 .map(pages::home::Message::Status)
                 .map(Message::Home)
                 .apply(widget::container)
@@ -457,7 +445,7 @@ pub enum ContextPage {
     #[default]
     About,
     Account(Account),
-    Status(Post),
+    Status(Status),
 }
 impl ContextPage {
     fn title(&self) -> String {

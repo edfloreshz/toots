@@ -1,6 +1,8 @@
 use cosmic::{widget, Element};
 use mastodon_async::{entities::notification::NotificationType, prelude::Notification};
 
+use crate::pages::home::Status;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Status(crate::widgets::status::Message),
@@ -44,9 +46,11 @@ pub fn notification<'a>(
     ));
 
     let content = notification.status.map(|status| {
-        widget::container(crate::widgets::status(status, sender_avatar, None).map(Message::Status))
-            .padding(spacing.space_xxs)
-            .class(cosmic::theme::Container::Dialog)
+        widget::container(
+            crate::widgets::status(Status::new(status, sender_avatar, None)).map(Message::Status),
+        )
+        .padding(spacing.space_xxs)
+        .class(cosmic::theme::Container::Dialog)
     });
 
     let content = widget::column()

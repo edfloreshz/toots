@@ -1,5 +1,7 @@
 use cosmic::{iced::mouse::Interaction, widget, Element};
-use mastodon_async::prelude::{AccountId, Status, StatusId};
+use mastodon_async::prelude::{AccountId, StatusId};
+
+use crate::pages::home::Status;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -12,32 +14,28 @@ pub enum Message {
     OpenLink(String),
 }
 
-pub fn status<'a>(
-    status: Status,
-    avatar: Option<widget::image::Handle>,
-    reblog_avatar: Option<widget::image::Handle>,
-) -> Element<'a, Message> {
+pub fn status<'a>(post: Status) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
-    let (avatar, reblog_avatar) = if status.reblog.is_some() {
-        (reblog_avatar.clone(), avatar.clone())
+    let (status_avatar, reblog_avatar) = if post.status.reblog.is_some() {
+        (post.reblog_avatar.clone(), post.status_avatar.clone())
     } else {
-        (avatar, reblog_avatar)
+        (post.status_avatar, post.reblog_avatar)
     };
 
-    let reblog = status.reblog.as_ref().map(|_| {
+    let reblog = post.status.reblog.as_ref().map(|_| {
         widget::button::custom(
             widget::row()
-                .push_maybe(reblog_avatar.map(|handle| widget::image(handle).width(20)))
+                .push(widget::image(reblog_avatar).width(20).height(20))
                 .push(widget::text(format!(
                     "{} boosted",
-                    status.account.display_name
+                    post.status.account.display_name
                 )))
                 .spacing(spacing.space_xs),
         )
-        .on_press(Message::OpenProfile(status.account.id.clone()))
+        .on_press(Message::OpenProfile(post.status.account.id.clone()))
     });
 
-    let status = status.reblog.as_deref().unwrap_or(&status);
+    let status = post.status.reblog.as_deref().unwrap_or(&post.status);
     let display_name = format!(
         "{} @{}",
         status.account.display_name, status.account.username
@@ -67,11 +65,12 @@ pub fn status<'a>(
         .push_maybe(reblog)
         .push(
             widget::row()
-                .push_maybe(avatar.map(|handle| {
-                    widget::button::image(handle)
+                .push(
+                    widget::button::image(status_avatar)
                         .width(50)
-                        .on_press(Message::OpenProfile(status.account.id.clone()))
-                }))
+                        .height(50)
+                        .on_press(Message::OpenProfile(status.account.id.clone())),
+                )
                 .push(
                     widget::column()
                         .push(
