@@ -138,9 +138,7 @@ impl Notifications {
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = vec![];
         if let Some(mastodon) = self.mastodon.clone() {
-            subscriptions.push(crate::subscriptions::mastodon_notifications_timeline(
-                mastodon,
-            ));
+            subscriptions.push(crate::subscriptions::notifications::timeline(mastodon));
         }
 
         Subscription::batch(subscriptions)
