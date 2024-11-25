@@ -9,7 +9,7 @@ use cosmic::{
 };
 use mastodon_async::{entities::notification::Notification, prelude::Mastodon};
 
-use crate::{app, utils::IMAGE_CACHE, widgets::status::StatusHandles};
+use crate::{app, utils, widgets::status::StatusHandles};
 
 #[derive(Debug, Clone)]
 pub struct Notifications {
@@ -77,26 +77,37 @@ impl Notifications {
                 }
             }
             Message::ResolveAvatar(notification) => {
-                tasks.push(Task::perform(
-                    async move {
-                        let mut image_cache = IMAGE_CACHE.write().await;
-                        let handle = image_cache.get(&notification.account.avatar).await;
-                        let status_handle = if let Some(status) = &notification.status {
-                            image_cache.get(&status.account.avatar).await.ok()
-                        } else {
-                            None
-                        };
+                let handles = StatusHandles::from_notification(&notification, &self.handles);
+                match (handles.primary, handles.secondary) {
+                    (None, None) => {
+                        tasks.push(Task::perform(
+                            async {
+                                let handle = utils::get_image(&notification.account.avatar).await;
+                                let reblog_handle = if let Some(reblog) = &notification.status {
+                                    utils::get_image(&reblog.account.avatar).await.ok()
+                                } else {
+                                    None
+                                };
 
-                        (notification, handle.ok(), status_handle)
-                    },
-                    |(id, status_avatar, reblog_avatar)| {
-                        cosmic::app::message::app(app::Message::Notifications(Message::SetAvatars(
-                            id,
-                            status_avatar,
-                            reblog_avatar,
-                        )))
-                    },
-                ));
+                                (notification, handle, reblog_handle)
+                            },
+                            |(notification, status_avatar, reblog_avatar)| {
+                                cosmic::app::message::app(app::Message::Notifications(
+                                    Message::SetAvatars(
+                                        notification.clone(),
+                                        status_avatar.ok(),
+                                        reblog_avatar,
+                                    ),
+                                ))
+                            },
+                        ));
+                    }
+                    (status_avatar, reblog_avatar) => tasks.push(self.update(Message::SetAvatars(
+                        notification.clone(),
+                        status_avatar,
+                        reblog_avatar,
+                    ))),
+                }
             }
             Message::SetAvatars(notification, status_avatar, sender_avatar) => {
                 if let Some(status_avatar) = status_avatar {

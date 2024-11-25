@@ -11,7 +11,7 @@ use mastodon_async::prelude::{Mastodon, Status};
 
 use crate::{
     app::{self, ContextPage},
-    utils::IMAGE_CACHE,
+    utils,
     widgets::status::StatusHandles,
 };
 
@@ -30,7 +30,7 @@ pub enum Message {
     DeletePost(String),
     Status(crate::widgets::status::Message),
     ResolveAvatars(Status),
-    SetAvatars(Status, Option<image::Handle>, Option<image::Handle>),
+    SetAvatars(Status, Option<Handle>, Option<Handle>),
 }
 
 impl Home {
@@ -80,26 +80,35 @@ impl Home {
             }
             Message::DeletePost(id) => self.statuses.retain(|status| status.id.to_string() != id),
             Message::ResolveAvatars(status) => {
-                tasks.push(Task::perform(
-                    async move {
-                        let mut image_cache = IMAGE_CACHE.write().await;
-                        let handle = image_cache.get(&status.account.avatar).await;
-                        let reblog_handle = if let Some(reblog) = &status.reblog {
-                            image_cache.get(&reblog.account.avatar).await.ok()
-                        } else {
-                            None
-                        };
+                let handles = StatusHandles::from_status(&status, &self.handles);
+                match (handles.primary, handles.secondary) {
+                    (None, None) => {
+                        tasks.push(Task::perform(
+                            async {
+                                let handle = utils::get_image(&status.account.avatar).await;
+                                let reblog_handle = if let Some(reblog) = &status.reblog {
+                                    utils::get_image(&reblog.account.avatar).await.ok()
+                                } else {
+                                    None
+                                };
 
-                        (status, handle.ok(), reblog_handle)
-                    },
-                    |(status, status_avatar, reblog_avatar)| {
-                        cosmic::app::message::app(app::Message::Home(Message::SetAvatars(
-                            status.clone(),
-                            status_avatar,
-                            reblog_avatar,
-                        )))
-                    },
-                ));
+                                (status, handle, reblog_handle)
+                            },
+                            |(status, status_avatar, reblog_avatar)| {
+                                cosmic::app::message::app(app::Message::Home(Message::SetAvatars(
+                                    status.clone(),
+                                    status_avatar.ok(),
+                                    reblog_avatar,
+                                )))
+                            },
+                        ));
+                    }
+                    (status_avatar, reblog_avatar) => tasks.push(self.update(Message::SetAvatars(
+                        status.clone(),
+                        status_avatar,
+                        reblog_avatar,
+                    ))),
+                }
             }
             Message::SetAvatars(status, status_avatar, reblog_avatar) => {
                 if let Some(status_avatar) = status_avatar {

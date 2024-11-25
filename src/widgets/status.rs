@@ -79,7 +79,7 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
                 .push(
                     reblog_avatar
                         .map(|avatar| widget::image(avatar).width(20).height(20))
-                        .unwrap_or(crate::utils::fallback_avatar()),
+                        .unwrap_or(crate::utils::fallback_avatar().width(20).height(20)),
                 )
                 .push(widget::text(format!(
                     "{} boosted",
