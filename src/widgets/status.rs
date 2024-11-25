@@ -5,7 +5,7 @@ use cosmic::{
     widget::{self, image::Handle},
     Element,
 };
-use mastodon_async::prelude::{AccountId, Notification, Status, StatusId};
+use mastodon_async::prelude::{Notification, Status, StatusId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusHandles {
@@ -56,7 +56,7 @@ impl StatusHandles {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    OpenProfile(AccountId),
+    OpenProfile(String),
     ExpandStatus(Status),
     Reply(StatusId),
     Favorite(StatusId),
@@ -87,7 +87,7 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
                 )))
                 .spacing(spacing.space_xs),
         )
-        .on_press(Message::OpenProfile(status.account.id.clone()))
+        .on_press(Message::OpenProfile(status.account.url.clone()))
     });
 
     let status = status.reblog.as_deref().unwrap_or(&status);
@@ -124,13 +124,13 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
                     widget::button::image(status_avatar.unwrap_or(crate::utils::fallback_handle()))
                         .width(50)
                         .height(50)
-                        .on_press(Message::OpenProfile(status.account.id.clone())),
+                        .on_press(Message::OpenProfile(status.account.url.clone())),
                 )
                 .push(
                     widget::column()
                         .push(
                             widget::button::link(display_name)
-                                .on_press(Message::OpenProfile(status.account.id.clone())),
+                                .on_press(Message::OpenProfile(status.account.url.clone())),
                         )
                         .push(
                             widget::MouseArea::new(widget::text(content))

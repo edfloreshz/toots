@@ -41,7 +41,7 @@ pub fn notification<'a>(
             .spacing(spacing.space_xs),
     )
     .on_press(Message::Status(
-        crate::widgets::status::Message::OpenProfile(notification.account.id.clone()),
+        crate::widgets::status::Message::OpenProfile(notification.account.url.clone()),
     ));
 
     let content = notification.status.as_ref().map(|status| {

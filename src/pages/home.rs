@@ -135,8 +135,8 @@ impl Home {
                 }
             }
             Message::Status(status_msg) => match status_msg {
-                crate::widgets::status::Message::OpenProfile(account_id) => {
-                    tracing::info!("open profile: {}", account_id)
+                crate::widgets::status::Message::OpenProfile(url) => {
+                    _ = open::that_detached(url);
                 }
                 crate::widgets::status::Message::ExpandStatus(status) => {
                     if let Some(status) = self.statuses.iter().find(|status| status.id == status.id)

@@ -121,8 +121,8 @@ impl Notifications {
             }
             Message::Notification(message) => match message {
                 crate::widgets::notification::Message::Status(message) => match message {
-                    crate::widgets::status::Message::OpenProfile(account_id) => {
-                        tracing::info!("open profile: {}", account_id)
+                    crate::widgets::status::Message::OpenProfile(url) => {
+                        _ = open::that_detached(url);
                     }
                     crate::widgets::status::Message::ExpandStatus(status) => {
                         tracing::info!("expand status: {}", status.id)
