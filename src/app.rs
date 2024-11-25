@@ -293,7 +293,15 @@ impl Application for AppModel {
             Message::RegisterMastodonClient => {
                 let mut registration = Registration::new(self.config.url());
                 tasks.push(Task::perform(
-                    async move { registration.client_name("Toot").build().await.ok() },
+                    async move {
+                        match registration.client_name("Toot").build().await {
+                            Ok(registration) => Some(registration),
+                            Err(err) => {
+                                tracing::error!("{err}");
+                                None
+                            }
+                        }
+                    },
                     |registration| {
                         cosmic::app::message::app(Message::StoreRegistration(registration))
                     },
