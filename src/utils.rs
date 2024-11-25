@@ -39,3 +39,13 @@ impl ImageCache {
         }
     }
 }
+
+pub fn fallback_avatar<'a>() -> widget::Image<'a> {
+    widget::image(image::Handle::from_bytes(
+        include_bytes!("../assets/missing.png").to_vec(),
+    ))
+}
+
+pub fn fallback_handle() -> widget::image::Handle {
+    image::Handle::from_bytes(include_bytes!("../assets/missing.png").to_vec())
+}

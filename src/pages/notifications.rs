@@ -1,62 +1,39 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use cosmic::{
     iced::Subscription,
     iced_core::image,
     iced_widget::scrollable::{Direction, Scrollbar},
-    widget, Apply, Element, Task,
+    widget::{self, image::Handle},
+    Apply, Element, Task,
 };
-use mastodon_async::{
-    entities::notification::Notification as MastodonNotification,
-    prelude::{Mastodon, NotificationId},
-};
+use mastodon_async::{entities::notification::Notification, prelude::Mastodon};
 
-use crate::{app, utils::IMAGE_CACHE};
+use crate::{app, utils::IMAGE_CACHE, widgets::status::StatusHandles};
 
 #[derive(Debug, Clone)]
 pub struct Notifications {
     pub mastodon: Option<Mastodon>,
     notifications: VecDeque<Notification>,
-    notification_ids: HashSet<String>,
+    handles: HashMap<String, Handle>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     SetClient(Option<Mastodon>),
-    AppendNotification(MastodonNotification),
-    PrependNotification(MastodonNotification),
+    AppendNotification(Notification),
+    PrependNotification(Notification),
     Notification(crate::widgets::notification::Message),
-    ResolveAvatar(NotificationId),
-    SetAvatars(NotificationId, Option<image::Handle>, Option<image::Handle>),
-}
-
-#[derive(Debug, Clone)]
-pub struct Notification {
-    notification: MastodonNotification,
-    sender_avatar: Option<widget::image::Handle>,
-    status_avatar: Option<widget::image::Handle>,
-}
-
-impl Notification {
-    pub fn new(
-        notification: MastodonNotification,
-        avatar: Option<widget::image::Handle>,
-        reglog_avatar: Option<widget::image::Handle>,
-    ) -> Self {
-        Self {
-            notification,
-            sender_avatar: avatar,
-            status_avatar: reglog_avatar,
-        }
-    }
+    ResolveAvatar(Notification),
+    SetAvatars(Notification, Option<image::Handle>, Option<image::Handle>),
 }
 
 impl Notifications {
     pub fn new() -> Self {
         Self {
-            notifications: VecDeque::new(),
-            notification_ids: HashSet::new(),
             mastodon: None,
+            notifications: VecDeque::new(),
+            handles: HashMap::new(),
         }
     }
 
@@ -65,11 +42,10 @@ impl Notifications {
         let notifications: Vec<Element<_>> = self
             .notifications
             .iter()
-            .map(|post| {
+            .map(|notification| {
                 crate::widgets::notification(
-                    post.notification.clone(),
-                    post.sender_avatar.clone(),
-                    post.status_avatar.clone(),
+                    notification,
+                    &StatusHandles::from_notification(notification, &self.handles),
                 )
                 .map(Message::Notification)
             })
@@ -89,45 +65,29 @@ impl Notifications {
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
             Message::AppendNotification(notification) => {
-                if !self.notification_ids.contains(&notification.id.to_string()) {
-                    self.notifications.push_back(Notification::new(
-                        notification.clone(),
-                        None,
-                        None,
-                    ));
-                    self.notification_ids.insert(notification.id.to_string());
-                    tasks.push(self.update(Message::ResolveAvatar(notification.id.clone())));
+                self.notifications.push_back(notification.clone());
+                if !self.handles.contains_key(&notification.account.avatar) {
+                    tasks.push(self.update(Message::ResolveAvatar(notification)));
                 }
             }
             Message::PrependNotification(notification) => {
-                if !self.notification_ids.contains(&notification.id.to_string()) {
-                    self.notifications.push_front(Notification::new(
-                        notification.clone(),
-                        None,
-                        None,
-                    ));
-                    self.notification_ids.insert(notification.id.to_string());
-                    tasks.push(self.update(Message::ResolveAvatar(notification.id.clone())));
+                if !self.handles.contains_key(&notification.account.avatar) {
+                    self.notifications.push_front(notification.clone());
+                    tasks.push(self.update(Message::ResolveAvatar(notification)));
                 }
             }
-            Message::ResolveAvatar(status_id) => {
-                let status = self
-                    .notifications
-                    .iter()
-                    .find(|s| s.notification.id == status_id)
-                    .map(|status| status.notification.clone())
-                    .expect("status not found");
+            Message::ResolveAvatar(notification) => {
                 tasks.push(Task::perform(
                     async move {
                         let mut image_cache = IMAGE_CACHE.write().await;
-                        let handle = image_cache.get(&status.account.avatar_static).await;
-                        let reblog_handle = if let Some(reblog) = &status.status {
-                            image_cache.get(&reblog.account.avatar_static).await.ok()
+                        let handle = image_cache.get(&notification.account.avatar).await;
+                        let status_handle = if let Some(status) = &notification.status {
+                            image_cache.get(&status.account.avatar).await.ok()
                         } else {
                             None
                         };
 
-                        (status_id, handle.ok(), reblog_handle)
+                        (notification, handle.ok(), status_handle)
                     },
                     |(id, status_avatar, reblog_avatar)| {
                         cosmic::app::message::app(app::Message::Notifications(Message::SetAvatars(
@@ -138,14 +98,14 @@ impl Notifications {
                     },
                 ));
             }
-            Message::SetAvatars(id, status_avatar, sender_avatar) => {
-                let notification = self
-                    .notifications
-                    .iter_mut()
-                    .find(|n| n.notification.id == id);
-                if let Some(status) = notification {
-                    status.sender_avatar = sender_avatar;
-                    status.status_avatar = status_avatar;
+            Message::SetAvatars(notification, status_avatar, sender_avatar) => {
+                if let Some(status_avatar) = status_avatar {
+                    self.handles
+                        .insert(notification.account.avatar, status_avatar);
+                }
+                if let Some(sender_avatar) = sender_avatar {
+                    self.handles
+                        .insert(notification.status.unwrap().account.avatar, sender_avatar);
                 }
             }
             Message::Notification(message) => match message {
@@ -153,8 +113,8 @@ impl Notifications {
                     crate::widgets::status::Message::OpenProfile(account_id) => {
                         tracing::info!("open profile: {}", account_id)
                     }
-                    crate::widgets::status::Message::ExpandStatus(status_id) => {
-                        tracing::info!("expand status: {}", status_id)
+                    crate::widgets::status::Message::ExpandStatus(status) => {
+                        tracing::info!("expand status: {}", status.id)
                     }
                     crate::widgets::status::Message::Reply(status_id) => {
                         tracing::info!("reply: {}", status_id)

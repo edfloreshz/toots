@@ -1,7 +1,7 @@
 use cosmic::{widget, Element};
 use mastodon_async::{entities::notification::NotificationType, prelude::Notification};
 
-use crate::pages::home::Status;
+use super::status::StatusHandles;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -9,18 +9,17 @@ pub enum Message {
 }
 
 pub fn notification<'a>(
-    notification: Notification,
-    sender_avatar: Option<widget::image::Handle>,
-    status_avatar: Option<widget::image::Handle>,
+    notification: &Notification,
+    handles: &StatusHandles,
 ) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
     let (sender_avatar, status_avatar) = if notification.status.is_some() {
-        (status_avatar.clone(), sender_avatar.clone())
+        (handles.secondary.clone(), handles.primary.clone())
     } else {
-        (sender_avatar, status_avatar)
+        (handles.primary.clone(), handles.secondary.clone())
     };
 
-    let display_name = notification.account.display_name;
+    let display_name = notification.account.display_name.clone();
 
     let action = match notification.notification_type {
         NotificationType::Mention => format!("{} mentioned you", display_name),
@@ -45,9 +44,10 @@ pub fn notification<'a>(
         crate::widgets::status::Message::OpenProfile(notification.account.id.clone()),
     ));
 
-    let content = notification.status.map(|status| {
+    let content = notification.status.as_ref().map(|status| {
         widget::container(
-            crate::widgets::status(Status::new(status, sender_avatar, None)).map(Message::Status),
+            crate::widgets::status(&status, &StatusHandles::new(sender_avatar.as_ref(), None))
+                .map(Message::Status),
         )
         .padding(spacing.space_xxs)
         .class(cosmic::theme::Container::Dialog)

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: {{LICENSE}}
 
 use crate::config::TootConfig;
-use crate::pages::home::Status;
 use crate::pages::Page;
+use crate::widgets::status::StatusHandles;
 use crate::{fl, pages};
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config;
@@ -13,7 +13,7 @@ use cosmic::widget::menu::{ItemHeight, ItemWidth};
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{Application, ApplicationExt, Apply, Element};
 use mastodon_async::helpers::toml;
-use mastodon_async::prelude::Account;
+use mastodon_async::prelude::{Account, Status};
 use mastodon_async::registration::Registered;
 use mastodon_async::{Data, Mastodon, Registration};
 use std::collections::HashMap;
@@ -210,10 +210,11 @@ impl Application for AppModel {
                 context_drawer::context_drawer(self.account(account), Message::ToggleContextDrawer)
                     .title(self.context_page.title())
             }
-            ContextPage::Status(post) => {
-                context_drawer::context_drawer(self.status(post), Message::ToggleContextDrawer)
-                    .title(self.context_page.title())
-            }
+            ContextPage::Status((status, handles)) => context_drawer::context_drawer(
+                self.status(status, &handles),
+                Message::ToggleContextDrawer,
+            )
+            .title(self.context_page.title()),
         })
     }
 
@@ -419,18 +420,14 @@ impl AppModel {
             .into()
     }
 
-    fn status(&self, post: &Status) -> Element<Message> {
+    fn status(&self, status: &Status, handles: &StatusHandles) -> Element<Message> {
         widget::column()
             .push(
-                crate::widgets::status(pages::home::Status::new(
-                    post.status.clone(),
-                    Some(post.status_avatar.clone()),
-                    Some(post.reblog_avatar.clone()),
-                ))
-                .map(pages::home::Message::Status)
-                .map(Message::Home)
-                .apply(widget::container)
-                .class(cosmic::theme::Container::Dialog),
+                crate::widgets::status(status, handles)
+                    .map(pages::home::Message::Status)
+                    .map(Message::Home)
+                    .apply(widget::container)
+                    .class(cosmic::theme::Container::Dialog),
             )
             .into()
     }
@@ -445,7 +442,7 @@ pub enum ContextPage {
     #[default]
     About,
     Account(Account),
-    Status(Status),
+    Status((Status, StatusHandles)),
 }
 impl ContextPage {
     fn title(&self) -> String {
