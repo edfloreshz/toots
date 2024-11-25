@@ -2,7 +2,6 @@ use std::collections::{HashMap, VecDeque};
 
 use cosmic::{
     iced::Subscription,
-    iced_core::image,
     iced_widget::scrollable::{Direction, Scrollbar},
     widget::{self, image::Handle},
     Apply, Element, Task,
@@ -20,6 +19,8 @@ pub struct Home {
     pub mastodon: Option<Mastodon>,
     statuses: VecDeque<Status>,
     handles: HashMap<String, Handle>,
+    skip: usize,
+    loading: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,7 @@ pub enum Message {
     Status(crate::widgets::status::Message),
     ResolveAvatars(Status),
     SetAvatars(Status, Option<Handle>, Option<Handle>),
+    LoadMore(bool),
 }
 
 impl Home {
@@ -39,6 +41,8 @@ impl Home {
             mastodon: None,
             statuses: VecDeque::new(),
             handles: HashMap::new(),
+            skip: 0,
+            loading: false,
         }
     }
 
@@ -57,6 +61,9 @@ impl Home {
             .direction(Direction::Vertical(
                 Scrollbar::default().spacing(spacing.space_xxs),
             ))
+            .on_scroll(|viewport| {
+                Message::LoadMore(!self.loading && viewport.relative_offset().y >= 0.85)
+            })
             .apply(widget::container)
             .max_width(700)
             .into()
@@ -66,13 +73,21 @@ impl Home {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
+            Message::LoadMore(load) => {
+                if !self.loading && load {
+                    self.loading = true;
+                    self.skip += 20;
+                }
+            }
             Message::AppendPost(status) => {
+                self.loading = false;
                 self.statuses.push_back(status.clone());
                 if !self.handles.contains_key(&status.account.avatar) {
                     tasks.push(self.update(Message::ResolveAvatars(status)));
                 }
             }
             Message::PrependPost(status) => {
+                self.loading = false;
                 self.statuses.push_front(status.clone());
                 if !self.handles.contains_key(&status.account.avatar) {
                     tasks.push(self.update(Message::ResolveAvatars(status)));
@@ -158,11 +173,11 @@ impl Home {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = vec![];
-        if let Some(mastodon) = self.mastodon.clone() {
-            subscriptions.push(crate::subscriptions::home::timeline(mastodon));
+        match self.mastodon.clone() {
+            Some(mastodon) => Subscription::batch(vec![crate::subscriptions::home::timeline(
+                mastodon, self.skip,
+            )]),
+            None => Subscription::none(),
         }
-
-        Subscription::batch(subscriptions)
     }
 }

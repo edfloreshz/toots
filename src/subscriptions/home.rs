@@ -4,31 +4,28 @@ use mastodon_async::Mastodon;
 
 use crate::pages;
 
-pub fn timeline(mastodon: Mastodon) -> Subscription<pages::home::Message> {
+pub fn timeline(mastodon: Mastodon, skip: usize) -> Subscription<pages::home::Message> {
     Subscription::run_with_id(
-        "timeline",
-        stream::channel(1, |mut output| async move {
-            tokio::task::spawn(async move {
-                let mut stream = Box::pin(
-                    mastodon
-                        .get_home_timeline()
-                        .await
-                        .unwrap()
-                        .items_iter()
-                        .take(100),
-                );
+        format!("timeline-{}", skip),
+        stream::channel(1, move |mut output| async move {
+            let mut stream = Box::pin(
+                mastodon
+                    .get_home_timeline()
+                    .await
+                    .unwrap()
+                    .items_iter()
+                    .skip(skip)
+                    .take(20),
+            );
 
-                while let Some(status) = stream.next().await {
-                    if let Err(err) = output
-                        .send(pages::home::Message::AppendPost(status.clone()))
-                        .await
-                    {
-                        tracing::warn!("failed to send post: {}", err);
-                    }
+            while let Some(status) = stream.next().await {
+                if let Err(err) = output
+                    .send(pages::home::Message::AppendPost(status.clone()))
+                    .await
+                {
+                    tracing::warn!("failed to send post: {}", err);
                 }
-            })
-            .await
-            .unwrap();
+            }
 
             std::future::pending().await
         }),
