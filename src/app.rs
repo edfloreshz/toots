@@ -29,6 +29,7 @@ pub struct AppModel {
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     config: TootConfig,
     handler: Option<cosmic_config::Config>,
+    instance: String,
     code: String,
     registration: Option<Registered>,
     mastodon: Option<Mastodon>,
@@ -42,7 +43,7 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     ToggleContextDrawer,
     UpdateConfig(TootConfig),
-    ServerUpdate(String),
+    InstanceEdit(String),
     RegisterMastodonClient,
     CompleteRegistration,
     StoreMastodonData(Mastodon),
@@ -116,8 +117,9 @@ impl Application for AppModel {
             nav,
             context_page: ContextPage::default(),
             key_binds: HashMap::new(),
-            config: flags.config,
+            config: flags.config.clone(),
             handler: flags.handler,
+            instance: flags.config.server,
             code: String::new(),
             registration: None,
             mastodon: mastodon.clone(),
@@ -281,9 +283,10 @@ impl Application for AppModel {
         match message {
             Message::Home(message) => tasks.push(self.home.update(message)),
             Message::Notifications(message) => tasks.push(self.notifications.update(message)),
-            Message::ServerUpdate(server) => {
+            Message::InstanceEdit(instance) => {
+                self.instance = instance.clone();
                 if let Some(ref handler) = self.handler {
-                    match self.config.set_server(handler, server.clone()) {
+                    match self.config.set_server(handler, instance) {
                         Ok(true) => (),
                         Ok(false) => tracing::error!("Failed to write config"),
                         Err(err) => tracing::error!("{err}"),
@@ -396,8 +399,8 @@ impl AppModel {
             .push(widget::text::title3(fl!("server-question")))
             .push(widget::text::body(fl!("server-description")))
             .push(
-                widget::text_input(fl!("server-url"), &self.config.server)
-                    .on_input(Message::ServerUpdate)
+                widget::text_input(fl!("server-url"), &self.instance)
+                    .on_input(Message::InstanceEdit)
                     .on_submit(Message::RegisterMastodonClient),
             )
             .push(
