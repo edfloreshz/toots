@@ -4,11 +4,11 @@ use cosmic::{
     iced::mouse::Interaction,
     iced_widget::scrollable::{Direction, Scrollbar},
     widget::{self, image::Handle},
-    Element,
+    Element, Task,
 };
-use mastodon_async::prelude::{Notification, Status, StatusId};
+use mastodon_async::prelude::{Account, Notification, Status, StatusId};
 
-use crate::utils;
+use crate::{app, utils};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusHandles {
@@ -95,8 +95,8 @@ impl StatusHandles {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    OpenProfile(String),
-    ExpandStatus(Status),
+    OpenAccount(Account),
+    ExpandStatus(StatusId),
     Reply(StatusId),
     Favorite(StatusId),
     Boost(StatusId),
@@ -112,7 +112,7 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
         (handles.primary.clone(), handles.secondary.clone())
     };
 
-    let reblog = status.reblog.as_ref().map(|_| {
+    let reblog = status.reblog.as_ref().map(|reblog| {
         widget::button::custom(
             widget::row()
                 .push(
@@ -126,7 +126,7 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
                 )))
                 .spacing(spacing.space_xs),
         )
-        .on_press(Message::OpenProfile(status.account.url.clone()))
+        .on_press(Message::OpenAccount(reblog.account.clone()))
     });
 
     let status = status.reblog.as_deref().unwrap_or(status);
@@ -140,13 +140,13 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
             widget::button::image(status_avatar.unwrap_or(crate::utils::fallback_handle()))
                 .width(50)
                 .height(50)
-                .on_press(Message::OpenProfile(status.account.url.clone())),
+                .on_press(Message::OpenAccount(status.account.clone())),
         )
         .push(
             widget::column()
                 .push(
                     widget::button::link(display_name)
-                        .on_press(Message::OpenProfile(status.account.url.clone())),
+                        .on_press(Message::OpenAccount(status.account.clone())),
                 )
                 .push(
                     widget::MouseArea::new(widget::text(
@@ -155,7 +155,7 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
                             .unwrap(),
                     ))
                     .interaction(Interaction::Pointer)
-                    .on_press(Message::ExpandStatus(status.clone())),
+                    .on_press(Message::ExpandStatus(status.id.clone())),
                 )
                 .spacing(spacing.space_xxs),
         )
@@ -237,4 +237,20 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
     widget::settings::flex_item_row(vec![status.into()])
         .padding(spacing.space_xs)
         .into()
+}
+
+pub fn update(message: Message) -> Task<app::Message> {
+    match message {
+        Message::OpenAccount(account) => cosmic::task::message(app::Message::ToggleContextPage(
+            app::ContextPage::Account(account),
+        )),
+        Message::ExpandStatus(id) => cosmic::task::message(app::Message::ToggleContextPage(
+            app::ContextPage::Status(id),
+        )),
+        Message::Reply(status_id) => cosmic::task::message(cosmic::app::message::none()),
+        Message::Favorite(status_id) => cosmic::task::message(cosmic::app::message::none()),
+        Message::Boost(status_id) => cosmic::task::message(cosmic::app::message::none()),
+        Message::Bookmark(status_id) => cosmic::task::message(cosmic::app::message::none()),
+        Message::OpenLink(url) => cosmic::task::message(app::Message::Open(url)),
+    }
 }

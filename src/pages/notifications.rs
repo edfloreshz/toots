@@ -11,9 +11,9 @@ use mastodon_async::{
 };
 
 use crate::{
-    app::{self, ContextPage},
+    app,
     utils::Cache,
-    widgets::status::StatusHandles,
+    widgets::{self, status::StatusHandles},
 };
 
 #[derive(Debug, Clone)]
@@ -79,33 +79,9 @@ impl Notifications {
                 )));
             }
             Message::Notification(message) => match message {
-                crate::widgets::notification::Message::Status(message) => match message {
-                    crate::widgets::status::Message::OpenProfile(url) => {
-                        _ = open::that_detached(url);
-                    }
-                    crate::widgets::status::Message::ExpandStatus(status) => {
-                        tasks.push(cosmic::task::message(app::Message::ToggleContextPage(
-                            ContextPage::Status(status.id.clone()),
-                        )));
-                    }
-                    crate::widgets::status::Message::Reply(status_id) => {
-                        tracing::info!("reply: {}", status_id)
-                    }
-                    crate::widgets::status::Message::Favorite(status_id) => {
-                        tracing::info!("favorite: {}", status_id)
-                    }
-                    crate::widgets::status::Message::Boost(status_id) => {
-                        tracing::info!("boost: {}", status_id)
-                    }
-                    crate::widgets::status::Message::Bookmark(status_id) => {
-                        tracing::info!("bookmark: {}", status_id)
-                    }
-                    crate::widgets::status::Message::OpenLink(url) => {
-                        if let Err(err) = open::that_detached(url) {
-                            tracing::error!("{err}")
-                        }
-                    }
-                },
+                crate::widgets::notification::Message::Status(message) => {
+                    tasks.push(widgets::status::update(message))
+                }
             },
         }
         Task::batch(tasks)

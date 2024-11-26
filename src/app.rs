@@ -5,7 +5,7 @@ use crate::error::Error;
 use crate::pages::Page;
 use crate::utils::Cache;
 use crate::widgets::status::StatusHandles;
-use crate::{fl, pages};
+use crate::{fl, pages, widgets};
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config;
 use cosmic::iced::alignment::{Horizontal, Vertical};
@@ -55,6 +55,7 @@ pub enum Message {
     StoreRegistration(Option<Registered>),
     Home(pages::home::Message),
     Notifications(pages::notifications::Message),
+    Account(widgets::account::Message),
     Fetch(Vec<String>),
     CachceStatus(Status),
     CacheNotification(Notification),
@@ -290,6 +291,7 @@ impl Application for AppModel {
         match message {
             Message::Home(message) => tasks.push(self.home.update(message)),
             Message::Notifications(message) => tasks.push(self.notifications.update(message)),
+            Message::Account(message) => tasks.push(widgets::account::update(message)),
             Message::Fetch(urls) => {
                 for url in urls {
                     if !self.cache.handles.contains_key(&url) {
@@ -323,7 +325,7 @@ impl Application for AppModel {
             }
             Message::CachceStatus(status) => {
                 self.cache.insert_status(status.clone());
-                let mut urls = vec![status.account.avatar.clone()];
+                let mut urls = vec![status.account.avatar.clone(), status.account.header.clone()];
                 if let Some(reblog) = &status.reblog {
                     urls.push(reblog.account.avatar.clone());
                 }
@@ -507,8 +509,10 @@ impl AppModel {
         widget::column().push_maybe(status).into()
     }
 
-    fn account(&self, _account: &Account) -> Element<Message> {
-        todo!()
+    fn account<'a>(&'a self, account: &'a Account) -> Element<'a, Message> {
+        crate::widgets::account(account, &self.cache.handles)
+            .map(Message::Account)
+            .into()
     }
 }
 

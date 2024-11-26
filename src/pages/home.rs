@@ -8,9 +8,9 @@ use cosmic::{
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
 
 use crate::{
-    app::{self, ContextPage},
+    app,
     utils::Cache,
-    widgets::status::StatusHandles,
+    widgets::{self, status::StatusHandles},
 };
 
 #[derive(Debug, Clone)]
@@ -88,33 +88,7 @@ impl Home {
             Message::DeleteStatus(id) => self
                 .statuses
                 .retain(|status_id| *status_id.to_string() != id),
-            Message::Status(status_msg) => match status_msg {
-                crate::widgets::status::Message::OpenProfile(url) => {
-                    _ = open::that_detached(url);
-                }
-                crate::widgets::status::Message::ExpandStatus(status) => {
-                    tasks.push(cosmic::task::message(app::Message::ToggleContextPage(
-                        ContextPage::Status(status.id.clone()),
-                    )));
-                }
-                crate::widgets::status::Message::Reply(status_id) => {
-                    tracing::info!("reply: {}", status_id)
-                }
-                crate::widgets::status::Message::Favorite(status_id) => {
-                    tracing::info!("favorite: {}", status_id)
-                }
-                crate::widgets::status::Message::Boost(status_id) => {
-                    tracing::info!("boost: {}", status_id)
-                }
-                crate::widgets::status::Message::Bookmark(status_id) => {
-                    tracing::info!("bookmark: {}", status_id)
-                }
-                crate::widgets::status::Message::OpenLink(url) => {
-                    if let Err(err) = open::that_detached(url) {
-                        tracing::error!("{err}")
-                    }
-                }
-            },
+            Message::Status(message) => tasks.push(widgets::status::update(message)),
         }
         Task::batch(tasks)
     }
