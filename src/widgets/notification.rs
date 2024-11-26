@@ -1,23 +1,15 @@
 use cosmic::{widget, Element};
 use mastodon_async::{entities::notification::NotificationType, prelude::Notification};
 
-use super::status::StatusHandles;
+use crate::utils::Cache;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Status(crate::widgets::status::Message),
 }
 
-pub fn notification<'a>(
-    notification: &Notification,
-    handles: &StatusHandles,
-) -> Element<'a, Message> {
+pub fn notification<'a>(notification: &'a Notification, cache: &'a Cache) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
-    let (sender_avatar, status_avatar) = if notification.status.is_some() {
-        (handles.secondary.clone(), handles.primary.clone())
-    } else {
-        (handles.primary.clone(), handles.secondary.clone())
-    };
 
     let display_name = notification.account.display_name.clone();
 
@@ -36,7 +28,12 @@ pub fn notification<'a>(
 
     let action = widget::button::custom(
         widget::row()
-            .push_maybe(status_avatar.map(|handle| widget::image(handle).width(20)))
+            .push_maybe(
+                cache
+                    .handles
+                    .get(&notification.account.avatar)
+                    .map(|handle| widget::image(handle).width(20)),
+            )
             .push(widget::text(action))
             .spacing(spacing.space_xs),
     )
@@ -45,12 +42,9 @@ pub fn notification<'a>(
     ));
 
     let content = notification.status.as_ref().map(|status| {
-        widget::container(
-            crate::widgets::status(status, &StatusHandles::new(sender_avatar.as_ref(), None))
-                .map(Message::Status),
-        )
-        .padding(spacing.space_xxs)
-        .class(cosmic::theme::Container::Dialog)
+        widget::container(crate::widgets::status(status, &cache).map(Message::Status))
+            .padding(spacing.space_xxs)
+            .class(cosmic::theme::Container::Dialog)
     });
 
     let content = widget::column()

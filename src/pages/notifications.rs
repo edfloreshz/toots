@@ -10,11 +10,7 @@ use mastodon_async::{
     prelude::{Mastodon, NotificationId},
 };
 
-use crate::{
-    app,
-    utils::Cache,
-    widgets::{self, status::StatusHandles},
-};
+use crate::{app, utils::Cache, widgets};
 
 #[derive(Debug, Clone)]
 pub struct Notifications {
@@ -38,18 +34,14 @@ impl Notifications {
         }
     }
 
-    pub fn view(&self, cache: &Cache) -> Element<Message> {
+    pub fn view<'a>(&'a self, cache: &'a Cache) -> Element<'a, Message> {
         let spacing = cosmic::theme::active().cosmic().spacing;
         let notifications: Vec<Element<_>> = self
             .notifications
             .iter()
             .filter_map(|id| cache.notifications.get(&id.to_string()))
             .map(|notification| {
-                crate::widgets::notification(
-                    notification,
-                    &StatusHandles::from_notification(notification, &cache.handles),
-                )
-                .map(Message::Notification)
+                crate::widgets::notification(notification, &cache).map(Message::Notification)
             })
             .collect();
 

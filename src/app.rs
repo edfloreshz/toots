@@ -4,7 +4,6 @@ use crate::config::TootConfig;
 use crate::error::Error;
 use crate::pages::Page;
 use crate::utils::Cache;
-use crate::widgets::status::StatusHandles;
 use crate::{fl, pages, widgets};
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config;
@@ -18,8 +17,10 @@ use cosmic::{Application, ApplicationExt, Apply, Element};
 use mastodon_async::helpers::toml;
 use mastodon_async::prelude::{Account, Notification, Status, StatusId};
 use mastodon_async::registration::Registered;
+use mastodon_async::scopes::Scopes;
 use mastodon_async::{Data, Mastodon, Registration};
 use std::collections::HashMap;
+use std::str::FromStr;
 
 const REPOSITORY: &str = "https://github.com/edfloreshz/toot";
 const SUPPORT: &str = "https://github.com/edfloreshz/toot/issues";
@@ -56,6 +57,7 @@ pub enum Message {
     Home(pages::home::Message),
     Notifications(pages::notifications::Message),
     Account(widgets::account::Message),
+    Status(widgets::status::Message),
     Fetch(Vec<String>),
     CachceStatus(Status),
     CacheNotification(Notification),
@@ -292,6 +294,33 @@ impl Application for AppModel {
             Message::Home(message) => tasks.push(self.home.update(message)),
             Message::Notifications(message) => tasks.push(self.notifications.update(message)),
             Message::Account(message) => tasks.push(widgets::account::update(message)),
+            Message::Status(message) => match message {
+                widgets::status::Message::Reply(status_id) => todo!(),
+                widgets::status::Message::Favorite(status_id, favorited) => {
+                    if let Some(mastodon) = self.mastodon.clone() {
+                        tasks.push(cosmic::task::future(async move {
+                            let result = if favorited {
+                                mastodon.unfavourite(&status_id).await
+                            } else {
+                                mastodon.favourite(&status_id).await
+                            };
+                            match result {
+                                Ok(status) => {
+                                    cosmic::app::message::app(Message::CachceStatus(status))
+                                }
+                                Err(err) => {
+                                    tracing::error!("{err}");
+                                    cosmic::app::message::none()
+                                }
+                            }
+                        }))
+                    }
+                }
+                widgets::status::Message::Boost(status_id) => todo!(),
+                widgets::status::Message::Bookmark(status_id) => todo!(),
+                widgets::status::Message::OpenLink(_) => todo!(),
+                _ => tasks.push(widgets::status::update(message)),
+            },
             Message::Fetch(urls) => {
                 for url in urls {
                     if !self.cache.handles.contains_key(&url) {
@@ -328,6 +357,10 @@ impl Application for AppModel {
                 let mut urls = vec![status.account.avatar.clone(), status.account.header.clone()];
                 if let Some(reblog) = &status.reblog {
                     urls.push(reblog.account.avatar.clone());
+                    urls.push(reblog.account.header.clone());
+                    for attachment in &reblog.media_attachments {
+                        urls.push(attachment.preview_url.clone());
+                    }
                 }
                 for attachment in &status.media_attachments {
                     urls.push(attachment.preview_url.clone());
@@ -336,9 +369,13 @@ impl Application for AppModel {
             }
             Message::CacheNotification(notification) => {
                 self.cache.insert_notification(notification.clone());
-                let mut urls = vec![notification.account.avatar.clone()];
+                let mut urls = vec![
+                    notification.account.avatar.clone(),
+                    notification.account.header.clone(),
+                ];
                 if let Some(status) = &notification.status {
                     urls.push(status.account.avatar.clone());
+                    urls.push(status.account.header.clone());
                     for attachment in &status.media_attachments {
                         urls.push(attachment.preview_url.clone());
                     }
@@ -355,11 +392,18 @@ impl Application for AppModel {
                     }
                 }
             }
+
             Message::RegisterMastodonClient => {
                 let mut registration = Registration::new(self.config.url());
                 tasks.push(Task::perform(
                     async move {
-                        match registration.client_name("Toot").build().await {
+                        let scopes = Scopes::from_str("read write").unwrap();
+                        match registration
+                            .client_name("Toot")
+                            .scopes(scopes)
+                            .build()
+                            .await
+                        {
                             Ok(registration) => Some(registration),
                             Err(err) => {
                                 tracing::error!("{err}");
@@ -497,14 +541,11 @@ impl AppModel {
 
     fn status(&self, id: &StatusId) -> Element<Message> {
         let status = self.cache.statuses.get(&id.to_string()).map(|status| {
-            crate::widgets::status(
-                status,
-                &StatusHandles::from_status(status, &self.cache.handles),
-            )
-            .map(pages::home::Message::Status)
-            .map(Message::Home)
-            .apply(widget::container)
-            .class(cosmic::theme::Container::Dialog)
+            crate::widgets::status(status, &self.cache)
+                .map(pages::home::Message::Status)
+                .map(Message::Home)
+                .apply(widget::container)
+                .class(cosmic::theme::Container::Dialog)
         });
         widget::column().push_maybe(status).into()
     }

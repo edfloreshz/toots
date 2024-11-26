@@ -7,11 +7,7 @@ use cosmic::{
 };
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
 
-use crate::{
-    app,
-    utils::Cache,
-    widgets::{self, status::StatusHandles},
-};
+use crate::{app, utils::Cache, widgets};
 
 #[derive(Debug, Clone)]
 pub struct Home {
@@ -41,16 +37,13 @@ impl Home {
         }
     }
 
-    pub fn view(&self, cache: &Cache) -> Element<Message> {
+    pub fn view<'a>(&'a self, cache: &'a Cache) -> Element<'a, Message> {
         let spacing = cosmic::theme::active().cosmic().spacing;
         let statuses: Vec<Element<_>> = self
             .statuses
             .iter()
             .filter_map(|id| cache.statuses.get(&id.to_string()))
-            .map(|status| {
-                crate::widgets::status(status, &StatusHandles::from_status(status, &cache.handles))
-                    .map(Message::Status)
-            })
+            .map(|status| crate::widgets::status(status, &cache).map(Message::Status))
             .collect();
 
         widget::scrollable(widget::settings::section().extend(statuses))
