@@ -13,8 +13,7 @@ pub enum Message {
     ExpandStatus(StatusId),
     Reply(StatusId),
     Favorite(StatusId, bool),
-    Boost(StatusId),
-    Bookmark(StatusId),
+    Boost(StatusId, bool),
     OpenLink(String),
 }
 
@@ -129,13 +128,18 @@ pub fn status<'a>(status: &'a Status, cache: &'a Cache) -> Element<'a, Message> 
             .push(
                 widget::button::icon(widget::icon::from_name("emblem-shared-symbolic"))
                     .label(status.reblogs_count.to_string())
-                    .on_press(Message::Boost(status.id.clone())),
+                    .class(if status.reblogged.unwrap() {
+                        cosmic::theme::Button::Suggested
+                    } else {
+                        cosmic::theme::Button::Icon
+                    })
+                    .on_press(Message::Boost(status.id.clone(), status.reblogged.unwrap())),
             )
             .push(
                 widget::button::icon(widget::icon::from_name("starred-symbolic"))
                     .label(status.favourites_count.to_string())
                     .class(if status.favourited.unwrap() {
-                        cosmic::theme::Button::Link
+                        cosmic::theme::Button::Suggested
                     } else {
                         cosmic::theme::Button::Icon
                     })
@@ -143,10 +147,6 @@ pub fn status<'a>(status: &'a Status, cache: &'a Cache) -> Element<'a, Message> 
                         status.id.clone(),
                         status.favourited.unwrap(),
                     )),
-            )
-            .push(
-                widget::button::icon(widget::icon::from_name("bookmark-new-symbolic"))
-                    .on_press(Message::Bookmark(status.id.clone())),
             )
             .padding(spacing.space_xs)
             .spacing(spacing.space_xs);
@@ -176,8 +176,9 @@ pub fn update(message: Message) -> Task<app::Message> {
         Message::Favorite(status_id, favorited) => cosmic::task::message(app::Message::Status(
             Message::Favorite(status_id, favorited),
         )),
-        Message::Boost(status_id) => cosmic::task::message(cosmic::app::message::none()),
-        Message::Bookmark(status_id) => cosmic::task::message(cosmic::app::message::none()),
+        Message::Boost(status_id, boosted) => {
+            cosmic::task::message(app::Message::Status(Message::Boost(status_id, boosted)))
+        }
         Message::OpenLink(url) => cosmic::task::message(app::Message::Open(url)),
     }
 }

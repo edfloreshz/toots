@@ -316,8 +316,26 @@ impl Application for AppModel {
                         }))
                     }
                 }
-                widgets::status::Message::Boost(status_id) => todo!(),
-                widgets::status::Message::Bookmark(status_id) => todo!(),
+                widgets::status::Message::Boost(status_id, boosted) => {
+                    if let Some(mastodon) = self.mastodon.clone() {
+                        tasks.push(cosmic::task::future(async move {
+                            let result = if boosted {
+                                mastodon.unreblog(&status_id).await
+                            } else {
+                                mastodon.reblog(&status_id).await
+                            };
+                            match result {
+                                Ok(status) => {
+                                    cosmic::app::message::app(Message::CachceStatus(status))
+                                }
+                                Err(err) => {
+                                    tracing::error!("{err}");
+                                    cosmic::app::message::none()
+                                }
+                            }
+                        }))
+                    }
+                }
                 widgets::status::Message::OpenLink(_) => todo!(),
                 _ => tasks.push(widgets::status::update(message)),
             },
