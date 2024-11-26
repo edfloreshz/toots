@@ -1,16 +1,44 @@
-use cosmic::{iced_core::image, widget};
+use std::collections::HashMap;
 
-use crate::error::Error;
+use cosmic::{
+    iced_core::image,
+    widget::{self, image::Handle},
+};
+use mastodon_async::prelude::*;
 
-pub async fn get_image(url: &str) -> Result<widget::image::Handle, Error> {
-    let response = reqwest::get(url).await?;
-    match response.error_for_status() {
-        Ok(response) => {
-            let bytes = response.bytes().await?;
-            let handle = image::Handle::from_bytes(bytes.to_vec());
-            Ok(handle)
+#[derive(Debug, Clone)]
+pub struct Cache {
+    pub handles: HashMap<String, Handle>,
+    pub statuses: HashMap<String, Status>,
+    pub notifications: HashMap<String, Notification>,
+}
+
+impl Cache {
+    pub fn new() -> Self {
+        Self {
+            handles: HashMap::new(),
+            statuses: HashMap::new(),
+            notifications: HashMap::new(),
         }
-        Err(err) => Err(err.into()),
+    }
+
+    pub fn insert_status(&mut self, status: Status) {
+        self.statuses.insert(status.id.to_string(), status.clone());
+        if let Some(reblog) = status.reblog {
+            self.statuses.insert(reblog.id.to_string(), *reblog);
+        }
+    }
+
+    pub fn insert_notification(&mut self, notification: Notification) {
+        self.notifications
+            .insert(notification.id.to_string(), notification.clone());
+        if let Some(status) = notification.status {
+            self.insert_status(status.clone());
+        }
+    }
+
+    pub fn insert_handle(&mut self, url: String, handle: Handle) {
+        self.handles.insert(url, handle);
     }
 }
 

@@ -1,21 +1,25 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use cosmic::{
     iced::Subscription,
-    iced_core::image,
     iced_widget::scrollable::{Direction, Scrollbar},
-    widget::{self, image::Handle},
-    Apply, Element, Task,
+    widget, Apply, Element, Task,
 };
-use mastodon_async::{entities::notification::Notification, prelude::Mastodon};
+use mastodon_async::{
+    entities::notification::Notification,
+    prelude::{Mastodon, NotificationId},
+};
 
-use crate::{app, utils, widgets::status::StatusHandles};
+use crate::{
+    app::{self, ContextPage},
+    utils::Cache,
+    widgets::status::StatusHandles,
+};
 
 #[derive(Debug, Clone)]
 pub struct Notifications {
     pub mastodon: Option<Mastodon>,
-    notifications: VecDeque<Notification>,
-    handles: HashMap<String, Handle>,
+    notifications: VecDeque<NotificationId>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,8 +28,6 @@ pub enum Message {
     AppendNotification(Notification),
     PrependNotification(Notification),
     Notification(crate::widgets::notification::Message),
-    ResolveAvatar(Notification),
-    SetAvatars(Notification, Option<image::Handle>, Option<image::Handle>),
 }
 
 impl Notifications {
@@ -33,19 +35,19 @@ impl Notifications {
         Self {
             mastodon: None,
             notifications: VecDeque::new(),
-            handles: HashMap::new(),
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self, cache: &Cache) -> Element<Message> {
         let spacing = cosmic::theme::active().cosmic().spacing;
         let notifications: Vec<Element<_>> = self
             .notifications
             .iter()
+            .filter_map(|id| cache.notifications.get(&id.to_string()))
             .map(|notification| {
                 crate::widgets::notification(
                     notification,
-                    &StatusHandles::from_notification(notification, &self.handles),
+                    &StatusHandles::from_notification(notification, &cache.handles),
                 )
                 .map(Message::Notification)
             })
@@ -65,59 +67,16 @@ impl Notifications {
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
             Message::AppendNotification(notification) => {
-                self.notifications.push_back(notification.clone());
-                if !self.handles.contains_key(&notification.account.avatar) {
-                    tasks.push(self.update(Message::ResolveAvatar(notification)));
-                }
+                self.notifications.push_back(notification.id.clone());
+                tasks.push(cosmic::task::message(app::Message::CacheNotification(
+                    notification,
+                )));
             }
             Message::PrependNotification(notification) => {
-                if !self.handles.contains_key(&notification.account.avatar) {
-                    self.notifications.push_front(notification.clone());
-                    tasks.push(self.update(Message::ResolveAvatar(notification)));
-                }
-            }
-            Message::ResolveAvatar(notification) => {
-                let handles = StatusHandles::from_notification(&notification, &self.handles);
-                match (handles.primary, handles.secondary) {
-                    (None, None) => {
-                        tasks.push(Task::perform(
-                            async {
-                                let handle = utils::get_image(&notification.account.avatar).await;
-                                let reblog_handle = if let Some(reblog) = &notification.status {
-                                    utils::get_image(&reblog.account.avatar).await.ok()
-                                } else {
-                                    None
-                                };
-
-                                (notification, handle, reblog_handle)
-                            },
-                            |(notification, status_avatar, reblog_avatar)| {
-                                cosmic::app::message::app(app::Message::Notifications(
-                                    Message::SetAvatars(
-                                        notification.clone(),
-                                        status_avatar.ok(),
-                                        reblog_avatar,
-                                    ),
-                                ))
-                            },
-                        ));
-                    }
-                    (status_avatar, reblog_avatar) => tasks.push(self.update(Message::SetAvatars(
-                        notification.clone(),
-                        status_avatar,
-                        reblog_avatar,
-                    ))),
-                }
-            }
-            Message::SetAvatars(notification, status_avatar, sender_avatar) => {
-                if let Some(status_avatar) = status_avatar {
-                    self.handles
-                        .insert(notification.account.avatar, status_avatar);
-                }
-                if let Some(sender_avatar) = sender_avatar {
-                    self.handles
-                        .insert(notification.status.unwrap().account.avatar, sender_avatar);
-                }
+                self.notifications.push_front(notification.id.clone());
+                tasks.push(cosmic::task::message(app::Message::CacheNotification(
+                    notification,
+                )));
             }
             Message::Notification(message) => match message {
                 crate::widgets::notification::Message::Status(message) => match message {
@@ -125,7 +84,9 @@ impl Notifications {
                         _ = open::that_detached(url);
                     }
                     crate::widgets::status::Message::ExpandStatus(status) => {
-                        tracing::info!("expand status: {}", status.id)
+                        tasks.push(cosmic::task::message(app::Message::ToggleContextPage(
+                            ContextPage::Status(status.id.clone()),
+                        )));
                     }
                     crate::widgets::status::Message::Reply(status_id) => {
                         tracing::info!("reply: {}", status_id)

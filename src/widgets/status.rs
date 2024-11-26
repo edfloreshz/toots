@@ -129,7 +129,7 @@ pub fn status<'a>(status: &Status, handles: &StatusHandles) -> Element<'a, Messa
         .on_press(Message::OpenProfile(status.account.url.clone()))
     });
 
-    let status = status.reblog.as_deref().unwrap_or(&status);
+    let status = status.reblog.as_deref().unwrap_or(status);
     let display_name = format!(
         "{} @{}",
         status.account.display_name, status.account.username

@@ -20,7 +20,7 @@ pub fn timeline(mastodon: Mastodon, skip: usize) -> Subscription<pages::home::Me
 
             while let Some(status) = stream.next().await {
                 if let Err(err) = output
-                    .send(pages::home::Message::AppendPost(status.clone()))
+                    .send(pages::home::Message::AppendStatus(status.clone()))
                     .await
                 {
                     tracing::warn!("failed to send post: {}", err);

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: {{LICENSE}}
 
 use crate::config::TootConfig;
+use crate::error::Error;
 use crate::pages::Page;
+use crate::utils::Cache;
 use crate::widgets::status::StatusHandles;
 use crate::{fl, pages};
 use cosmic::app::{context_drawer, Core, Task};
@@ -9,11 +11,12 @@ use cosmic::cosmic_config;
 use cosmic::iced::alignment::{Horizontal, Vertical};
 use cosmic::iced::{Length, Subscription};
 use cosmic::widget::about::About;
+use cosmic::widget::image::Handle;
 use cosmic::widget::menu::{ItemHeight, ItemWidth};
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{Application, ApplicationExt, Apply, Element};
 use mastodon_async::helpers::toml;
-use mastodon_async::prelude::{Account, Status};
+use mastodon_async::prelude::{Account, Notification, Status, StatusId};
 use mastodon_async::registration::Registered;
 use mastodon_async::{Data, Mastodon, Registration};
 use std::collections::HashMap;
@@ -33,6 +36,7 @@ pub struct AppModel {
     code: String,
     registration: Option<Registered>,
     mastodon: Option<Mastodon>,
+    cache: Cache,
     home: pages::home::Home,
     notifications: pages::notifications::Notifications,
 }
@@ -51,6 +55,10 @@ pub enum Message {
     StoreRegistration(Option<Registered>),
     Home(pages::home::Message),
     Notifications(pages::notifications::Message),
+    Fetch(Vec<String>),
+    CachceStatus(Status),
+    CacheNotification(Notification),
+    CacheHandle(String, Handle),
 }
 
 pub struct Flags {
@@ -123,6 +131,7 @@ impl Application for AppModel {
             code: String::new(),
             registration: None,
             mastodon: mastodon.clone(),
+            cache: Cache::new(),
             home: pages::home::Home::new(),
             notifications: pages::notifications::Notifications::new(),
         };
@@ -212,11 +221,10 @@ impl Application for AppModel {
                 context_drawer::context_drawer(self.account(account), Message::ToggleContextDrawer)
                     .title(self.context_page.title())
             }
-            ContextPage::Status((status, handles)) => context_drawer::context_drawer(
-                self.status(status, handles.clone()),
-                Message::ToggleContextDrawer,
-            )
-            .title(self.context_page.title()),
+            ContextPage::Status(status) => {
+                context_drawer::context_drawer(self.status(status), Message::ToggleContextDrawer)
+                    .title(self.context_page.title())
+            }
         })
     }
 
@@ -232,8 +240,11 @@ impl Application for AppModel {
         match self.mastodon {
             Some(_) => match self.nav.active_data::<Page>() {
                 Some(page) => match page {
-                    Page::Home => self.home.view().map(Message::Home),
-                    Page::Notifications => self.notifications.view().map(Message::Notifications),
+                    Page::Home => self.home.view(&self.cache).map(Message::Home),
+                    Page::Notifications => self
+                        .notifications
+                        .view(&self.cache)
+                        .map(Message::Notifications),
                     _ => widget::text("Not yet implemented").into(),
                 },
                 None => widget::text("Select a page").into(),
@@ -260,15 +271,11 @@ impl Application for AppModel {
             .watch_config::<TootConfig>(Self::APP_ID)
             .map(|update| Message::UpdateConfig(update.config))];
 
-        subscriptions.push(
-            self.home
-                .subscription()
-                .map(|message| Message::Home(message)),
-        );
+        subscriptions.push(self.home.subscription().map(Message::Home));
         subscriptions.push(
             self.notifications
                 .subscription()
-                .map(|message| Message::Notifications(message)),
+                .map(Message::Notifications),
         );
 
         if let Some(mastodon) = self.mastodon.clone() {
@@ -283,6 +290,59 @@ impl Application for AppModel {
         match message {
             Message::Home(message) => tasks.push(self.home.update(message)),
             Message::Notifications(message) => tasks.push(self.notifications.update(message)),
+            Message::Fetch(urls) => {
+                for url in urls {
+                    if !self.cache.handles.contains_key(&url) {
+                        tasks.push(Task::perform(
+                            async move {
+                                let response = reqwest::get(&url).await?;
+                                match response.error_for_status() {
+                                    Ok(response) => {
+                                        let bytes = response.bytes().await?;
+                                        let handle = Handle::from_bytes(bytes.to_vec());
+                                        Ok((url, handle))
+                                    }
+                                    Err(err) => Err(err.into()),
+                                }
+                            },
+                            |response: Result<(String, Handle), Error>| match response {
+                                Ok((url, handle)) => {
+                                    cosmic::app::message::app(Message::CacheHandle(url, handle))
+                                }
+                                Err(err) => {
+                                    tracing::error!("{err}");
+                                    cosmic::app::message::none()
+                                }
+                            },
+                        ));
+                    }
+                }
+            }
+            Message::CacheHandle(url, handle) => {
+                self.cache.insert_handle(url.clone(), handle);
+            }
+            Message::CachceStatus(status) => {
+                self.cache.insert_status(status.clone());
+                let mut urls = vec![status.account.avatar.clone()];
+                if let Some(reblog) = &status.reblog {
+                    urls.push(reblog.account.avatar.clone());
+                }
+                for attachment in &status.media_attachments {
+                    urls.push(attachment.preview_url.clone());
+                }
+                tasks.push(self.update(Message::Fetch(urls)));
+            }
+            Message::CacheNotification(notification) => {
+                self.cache.insert_notification(notification.clone());
+                let mut urls = vec![notification.account.avatar.clone()];
+                if let Some(status) = &notification.status {
+                    urls.push(status.account.avatar.clone());
+                    for attachment in &status.media_attachments {
+                        urls.push(attachment.preview_url.clone());
+                    }
+                }
+                tasks.push(self.update(Message::Fetch(urls)));
+            }
             Message::InstanceEdit(instance) => {
                 self.instance = instance.clone();
                 if let Some(ref handler) = self.handler {
@@ -433,16 +493,18 @@ impl AppModel {
             .into()
     }
 
-    fn status(&self, status: &Status, handles: StatusHandles) -> Element<Message> {
-        widget::column()
-            .push(
-                crate::widgets::status(status, &handles)
-                    .map(pages::home::Message::Status)
-                    .map(Message::Home)
-                    .apply(widget::container)
-                    .class(cosmic::theme::Container::Dialog),
+    fn status(&self, id: &StatusId) -> Element<Message> {
+        let status = self.cache.statuses.get(&id.to_string()).map(|status| {
+            crate::widgets::status(
+                status,
+                &StatusHandles::from_status(status, &self.cache.handles),
             )
-            .into()
+            .map(pages::home::Message::Status)
+            .map(Message::Home)
+            .apply(widget::container)
+            .class(cosmic::theme::Container::Dialog)
+        });
+        widget::column().push_maybe(status).into()
     }
 
     fn account(&self, _account: &Account) -> Element<Message> {
@@ -455,7 +517,7 @@ pub enum ContextPage {
     #[default]
     About,
     Account(Account),
-    Status((Status, StatusHandles)),
+    Status(StatusId),
 }
 impl ContextPage {
     fn title(&self) -> String {

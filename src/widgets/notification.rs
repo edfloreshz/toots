@@ -46,7 +46,7 @@ pub fn notification<'a>(
 
     let content = notification.status.as_ref().map(|status| {
         widget::container(
-            crate::widgets::status(&status, &StatusHandles::new(sender_avatar.as_ref(), None))
+            crate::widgets::status(status, &StatusHandles::new(sender_avatar.as_ref(), None))
                 .map(Message::Status),
         )
         .padding(spacing.space_xxs)

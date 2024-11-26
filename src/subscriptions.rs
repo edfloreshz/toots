@@ -21,7 +21,7 @@ pub fn mastodon_user_events(mastodon: Mastodon) -> Subscription<app::Message> {
                         match event {
                             Event::Update(ref status) => {
                                 if let Err(err) = output
-                                    .send(app::Message::Home(pages::home::Message::PrependPost(
+                                    .send(app::Message::Home(pages::home::Message::PrependStatus(
                                         status.clone(),
                                     )))
                                     .await
@@ -43,7 +43,7 @@ pub fn mastodon_user_events(mastodon: Mastodon) -> Subscription<app::Message> {
                             }
                             Event::Delete(ref id) => {
                                 if let Err(err) = output
-                                    .send(app::Message::Home(pages::home::Message::DeletePost(
+                                    .send(app::Message::Home(pages::home::Message::DeleteStatus(
                                         id.clone(),
                                     )))
                                     .await
