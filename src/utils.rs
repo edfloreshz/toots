@@ -5,10 +5,11 @@ use cosmic::{
     widget::{self, image::Handle},
 };
 use mastodon_async::prelude::*;
+use reqwest::Url;
 
 #[derive(Debug, Clone)]
 pub struct Cache {
-    pub handles: HashMap<String, Handle>,
+    pub handles: HashMap<Url, Handle>,
     pub statuses: HashMap<String, Status>,
     pub notifications: HashMap<String, Notification>,
 }
@@ -37,7 +38,7 @@ impl Cache {
         }
     }
 
-    pub fn insert_handle(&mut self, url: String, handle: Handle) {
+    pub fn insert_handle(&mut self, url: Url, handle: Handle) {
         self.handles.insert(url, handle);
     }
 }

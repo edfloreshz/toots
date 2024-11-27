@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use cosmic::{
     iced::{mouse::Interaction, Alignment, Length},
     iced_widget::scrollable::{Direction, Scrollbar},
@@ -7,6 +9,7 @@ use mastodon_async::{
     prelude::{Account, Status, StatusId},
     NewStatus,
 };
+use reqwest::Url;
 
 use crate::{
     app,
@@ -20,7 +23,7 @@ pub enum Message {
     Reply(StatusId, String),
     Favorite(StatusId, bool),
     Boost(StatusId, bool),
-    OpenLink(String),
+    OpenLink(Url),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -60,12 +63,7 @@ pub fn status<'a>(
     let status = status
         .reblog
         .as_ref()
-        .map(|reblog| {
-            cache
-                .statuses
-                .get(&reblog.id.to_string())
-                .unwrap_or(&*reblog)
-        })
+        .map(|reblog| cache.statuses.get(&reblog.id.to_string()).unwrap_or(reblog))
         .unwrap_or(status);
 
     widget::column()
@@ -87,10 +85,15 @@ fn card<'a>(status: &'a Status, cache: &'a Cache) -> Option<Element<'a, Message>
     status.card.as_ref().map(|card| {
         widget::column()
             .push_maybe(card.image.as_ref().map(|image| {
-                cache
-                    .handles
-                    .get(image)
-                    .map(|image| widget::image(image))
+                Url::from_str(image)
+                    .ok()
+                    .map(|url| {
+                        cache
+                            .handles
+                            .get(&url)
+                            .map(widget::image)
+                            .unwrap_or(utils::fallback_avatar())
+                    })
                     .unwrap_or(utils::fallback_avatar())
             }))
             .push(
@@ -118,9 +121,11 @@ pub fn update(message: Message) -> Task<app::Message> {
             app::ContextPage::Status(id),
         )),
         Message::Reply(status_id, username) => {
-            let mut new_status = NewStatus::default();
-            new_status.in_reply_to_id = Some(status_id.to_string());
-            new_status.status = Some(format!("@{} ", username));
+            let new_status = NewStatus {
+                in_reply_to_id: Some(status_id.to_string()),
+                status: Some(format!("@{} ", username)),
+                ..Default::default()
+            };
             cosmic::task::message(app::Message::Dialog(app::DialogAction::Open(
                 app::Dialog::Reply(new_status),
             )))
@@ -131,18 +136,18 @@ pub fn update(message: Message) -> Task<app::Message> {
         Message::Boost(status_id, boosted) => {
             cosmic::task::message(app::Message::Status(Message::Boost(status_id, boosted)))
         }
-        Message::OpenLink(url) => cosmic::task::message(app::Message::Open(url)),
+        Message::OpenLink(url) => cosmic::task::message(app::Message::Open(url.to_string())),
     }
 }
 
-fn actions<'a>(status: &'a Status, options: StatusOptions) -> Option<Element<'a, Message>> {
+fn actions(status: &Status, options: StatusOptions) -> Option<Element<Message>> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
     let actions = (options.actions).then_some({
         widget::row()
             .push(
                 widget::button::icon(widget::icon::from_name("mail-replied-symbolic"))
-                    .label(status.replies_count.unwrap_or_default().to_string())
+                    .label(status.replies_count.to_string())
                     .on_press(Message::Reply(
                         status.id.clone(),
                         status.account.username.clone(),
@@ -191,7 +196,7 @@ fn media<'a>(
             widget::button::image(
                 cache
                     .handles
-                    .get(&media.preview_url.to_string())
+                    .get(&media.preview_url)
                     .cloned()
                     .unwrap_or(crate::utils::fallback_handle()),
             )
@@ -207,7 +212,7 @@ fn media<'a>(
     media
 }
 
-fn tags<'a>(status: &'a Status, options: StatusOptions) -> Option<Element<'a, Message>> {
+fn tags(status: &Status, options: StatusOptions) -> Option<Element<Message>> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
     let tags: Option<Element<_>> = (!status.tags.is_empty() && options.tags).then(|| {
@@ -219,7 +224,7 @@ fn tags<'a>(status: &'a Status, options: StatusOptions) -> Option<Element<'a, Me
                     .iter()
                     .map(|tag| {
                         widget::button::suggested(format!("#{}", tag.name.clone()))
-                            .on_press(Message::OpenLink(tag.url.clone()))
+                            .on_press_maybe(Url::from_str(&tag.url).map(Message::OpenLink).ok())
                             .into()
                     })
                     .collect::<Vec<Element<Message>>>(),
@@ -260,7 +265,7 @@ fn header<'a>(
     header
 }
 
-fn content<'a>(status: &'a Status, options: StatusOptions) -> Element<'a, Message> {
+fn content(status: &Status, options: StatusOptions) -> Element<Message> {
     let mut status_text: Element<_> = widget::text(
         html2text::config::rich()
             .string_from_read(status.content.as_bytes(), 700)

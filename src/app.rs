@@ -16,10 +16,10 @@ use cosmic::widget::menu::{ItemHeight, ItemWidth};
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{Application, ApplicationExt, Apply, Element};
 use mastodon_async::helpers::toml;
-use mastodon_async::prelude::{Account, Notification, Status, StatusId};
+use mastodon_async::prelude::{Account, Notification, Scopes, Status, StatusId};
 use mastodon_async::registration::Registered;
-use mastodon_async::scopes::Scopes;
 use mastodon_async::{Data, Mastodon, NewStatus, Registration};
+use reqwest::Url;
 use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
 
@@ -61,10 +61,10 @@ pub enum Message {
     Notifications(pages::notifications::Message),
     Account(widgets::account::Message),
     Status(widgets::status::Message),
-    Fetch(Vec<String>),
+    Fetch(Vec<Url>),
     CachceStatus(Status),
     CacheNotification(Notification),
-    CacheHandle(String, Handle),
+    CacheHandle(Url, Handle),
     Dialog(DialogAction),
     EditorAction(widget::text_editor::Action),
 }
@@ -269,7 +269,7 @@ impl Application for AppModel {
                                         .get(&new_status.in_reply_to_id.clone().unwrap())
                                         .map(|status| {
                                             widgets::status(
-                                                &status,
+                                                status,
                                                 StatusOptions::none(),
                                                 &self.cache,
                                             )
@@ -415,34 +415,6 @@ impl Application for AppModel {
                 widgets::status::Message::OpenLink(_) => todo!(),
                 _ => tasks.push(widgets::status::update(message)),
             },
-            Message::Fetch(urls) => {
-                for url in urls {
-                    if !self.cache.handles.contains_key(&url) {
-                        tasks.push(Task::perform(
-                            async move {
-                                let response = reqwest::get(&url).await?;
-                                match response.error_for_status() {
-                                    Ok(response) => {
-                                        let bytes = response.bytes().await?;
-                                        let handle = Handle::from_bytes(bytes.to_vec());
-                                        Ok((url, handle))
-                                    }
-                                    Err(err) => Err(err.into()),
-                                }
-                            },
-                            |response: Result<(String, Handle), Error>| match response {
-                                Ok((url, handle)) => {
-                                    cosmic::app::message::app(Message::CacheHandle(url, handle))
-                                }
-                                Err(err) => {
-                                    tracing::error!("{err}");
-                                    cosmic::app::message::none()
-                                }
-                            },
-                        ));
-                    }
-                }
-            }
             Message::CacheHandle(url, handle) => {
                 self.cache.insert_handle(url.clone(), handle);
             }
@@ -452,13 +424,22 @@ impl Application for AppModel {
                 if let Some(reblog) = &status.reblog {
                     urls.push(reblog.account.avatar.clone());
                     urls.push(reblog.account.header.clone());
+                    if let Some(card) = &reblog.card {
+                        if let Some(image) = &card.image {
+                            if let Ok(url) = Url::from_str(image) {
+                                urls.push(url);
+                            }
+                        }
+                    }
                     for attachment in &reblog.media_attachments {
                         urls.push(attachment.preview_url.clone());
                     }
                 }
                 if let Some(card) = status.card {
                     if let Some(image) = card.image {
-                        urls.push(image.clone());
+                        if let Ok(url) = Url::from_str(&image) {
+                            urls.push(url);
+                        }
                     }
                 }
                 for attachment in &status.media_attachments {
@@ -477,7 +458,9 @@ impl Application for AppModel {
                     urls.push(status.account.header.clone());
                     if let Some(card) = &status.card {
                         if let Some(image) = &card.image {
-                            urls.push(image.clone());
+                            if let Ok(url) = Url::from_str(image) {
+                                urls.push(url);
+                            }
                         }
                     }
                     for attachment in &status.media_attachments {
@@ -485,6 +468,34 @@ impl Application for AppModel {
                     }
                 }
                 tasks.push(self.update(Message::Fetch(urls)));
+            }
+            Message::Fetch(urls) => {
+                for url in urls {
+                    if !self.cache.handles.contains_key(&url) {
+                        tasks.push(Task::perform(
+                            async move {
+                                let response = reqwest::get(url.clone()).await?;
+                                match response.error_for_status() {
+                                    Ok(response) => {
+                                        let bytes = response.bytes().await?;
+                                        let handle = Handle::from_bytes(bytes.to_vec());
+                                        Ok((url, handle))
+                                    }
+                                    Err(err) => Err(err.into()),
+                                }
+                            },
+                            |response: Result<(Url, Handle), Error>| match response {
+                                Ok((url, handle)) => {
+                                    cosmic::app::message::app(Message::CacheHandle(url, handle))
+                                }
+                                Err(err) => {
+                                    tracing::error!("{err}");
+                                    cosmic::app::message::none()
+                                }
+                            },
+                        ));
+                    }
+                }
             }
             Message::InstanceEdit(instance) => {
                 self.instance = instance.clone();
@@ -699,9 +710,7 @@ impl AppModel {
     }
 
     fn account<'a>(&'a self, account: &'a Account) -> Element<'a, Message> {
-        crate::widgets::account(account, &self.cache.handles)
-            .map(Message::Account)
-            .into()
+        crate::widgets::account(account, &self.cache.handles).map(Message::Account)
     }
 }
 

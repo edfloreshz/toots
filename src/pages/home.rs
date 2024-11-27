@@ -48,7 +48,7 @@ impl Home {
             .iter()
             .filter_map(|id| cache.statuses.get(&id.to_string()))
             .map(|status| {
-                crate::widgets::status(status, StatusOptions::all(), &cache).map(Message::Status)
+                crate::widgets::status(status, StatusOptions::all(), cache).map(Message::Status)
             })
             .collect();
 

@@ -41,7 +41,7 @@ impl Notifications {
             .iter()
             .filter_map(|id| cache.notifications.get(&id.to_string()))
             .map(|notification| {
-                crate::widgets::notification(notification, &cache).map(Message::Notification)
+                crate::widgets::notification(notification, cache).map(Message::Notification)
             })
             .collect();
 

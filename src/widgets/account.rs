@@ -5,24 +5,23 @@ use cosmic::{
     Apply, Element, Task,
 };
 use mastodon_async::prelude::Account;
-use std::collections::HashMap;
+use reqwest::Url;
+use std::{collections::HashMap, str::FromStr};
 
 use crate::app;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Open(String),
+    Open(Url),
 }
 
 pub fn account<'a>(
     account: &'a Account,
-    handles: &'a HashMap<String, Handle>,
+    handles: &'a HashMap<Url, Handle>,
 ) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
-    let header = handles
-        .get(&account.header)
-        .map(|handle| widget::image(handle));
+    let header = handles.get(&account.header).map(widget::image);
     let avatar = handles
         .get(&account.avatar)
         .map(|handle| widget::image(handle).width(100));
@@ -41,24 +40,23 @@ pub fn account<'a>(
             .format(&time::format_description::parse("[day] [month repr:short] [year]").unwrap())
             .unwrap()
     ));
-    let fields: Option<Vec<Element<_>>> = account.fields.as_ref().map(|fields| {
-        fields
-            .iter()
-            .map(|field| {
-                let value = html2text::config::rich()
-                    .string_from_read(field.value.as_bytes(), 700)
-                    .unwrap();
-                widget::column()
-                    .push(widget::text(field.name.capitalize()))
-                    .push(widget::text(value.clone()).class(cosmic::style::Text::Accent))
-                    .width(Length::Fill)
-                    .apply(widget::button::custom)
-                    .class(cosmic::style::Button::Icon)
-                    .on_press(Message::Open(value))
-                    .into()
-            })
-            .collect()
-    });
+    let fields: Vec<Element<_>> = account
+        .fields
+        .iter()
+        .map(|field| {
+            let value = html2text::config::rich()
+                .string_from_read(field.value.as_bytes(), 700)
+                .unwrap();
+            widget::column()
+                .push(widget::text(field.name.capitalize()))
+                .push(widget::text(value.clone()).class(cosmic::style::Text::Accent))
+                .width(Length::Fill)
+                .apply(widget::button::custom)
+                .class(cosmic::style::Button::Icon)
+                .on_press_maybe(Url::from_str(&value).map(Message::Open).ok())
+                .into()
+        })
+        .collect();
     let followers = widget::column()
         .push(widget::text::text("Followers"))
         .push(widget::text::title3(account.followers_count.to_string()))
@@ -95,7 +93,7 @@ pub fn account<'a>(
         .push_maybe(bio)
         .push(joined)
         .push(info)
-        .push_maybe(fields.map(|fields| widget::settings::section().extend(fields)))
+        .push_maybe((!fields.is_empty()).then_some(widget::settings::section().extend(fields)))
         .align_x(Horizontal::Center)
         .width(Length::Fill)
         .spacing(spacing.space_xs);
@@ -109,7 +107,7 @@ pub fn update(message: Message) -> Task<app::Message> {
     let tasks = vec![];
     match message {
         Message::Open(url) => {
-            if let Err(err) = open::that_detached(url) {
+            if let Err(err) = open::that_detached(url.to_string()) {
                 tracing::error!("{err}");
             }
         }

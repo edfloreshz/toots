@@ -1,5 +1,5 @@
 use cosmic::{widget, Element};
-use mastodon_async::{entities::notification::NotificationType, prelude::Notification};
+use mastodon_async::prelude::{notification::Type, Notification};
 
 use crate::utils::{self, Cache};
 
@@ -16,16 +16,20 @@ pub fn notification<'a>(notification: &'a Notification, cache: &'a Cache) -> Ele
     let display_name = notification.account.display_name.clone();
 
     let action = match notification.notification_type {
-        NotificationType::Mention => format!("{} mentioned you", display_name),
-        NotificationType::Reblog => format!("{} boosted", display_name),
-        NotificationType::Favourite => format!("{} liked", display_name),
-        NotificationType::Follow => {
+        Type::Mention => format!("{} mentioned you", display_name),
+        Type::Reblog => format!("{} boosted", display_name),
+        Type::Favourite => format!("{} liked", display_name),
+        Type::Follow => {
             format!("{} followed you", display_name)
         }
-        NotificationType::FollowRequest => format!("{} requested to follow you", display_name),
-        NotificationType::Poll => {
+        Type::FollowRequest => format!("{} requested to follow you", display_name),
+        Type::Poll => {
             format!("{} created a poll", display_name)
         }
+        Type::Status => format!("{} has posted a status", display_name),
+        Type::Update => "A post has been edited".to_string(),
+        Type::SignUp => "Someone signed up (optionally sent to admins)".to_string(),
+        Type::Report => "A new report has been filed".to_string(),
     };
 
     let action = widget::button::custom(
@@ -46,7 +50,7 @@ pub fn notification<'a>(notification: &'a Notification, cache: &'a Cache) -> Ele
 
     let content = notification.status.as_ref().map(|status| {
         widget::container(
-            crate::widgets::status(status, StatusOptions::new(false, true, false, true), &cache)
+            crate::widgets::status(status, StatusOptions::new(false, true, false, true), cache)
                 .map(Message::Status),
         )
         .padding(spacing.space_xxs)

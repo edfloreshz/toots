@@ -18,7 +18,7 @@ time = "0.3.36"
 tracing = "0.1.40"
 
 [dependencies.mastodon-async]
-version = "1.3.2"
+git = "https://github.com/dscottboggs/mastodon-async"
 features = ["all"]
 
 [dependencies.serde]
