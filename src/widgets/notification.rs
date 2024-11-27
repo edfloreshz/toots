@@ -3,6 +3,8 @@ use mastodon_async::{entities::notification::NotificationType, prelude::Notifica
 
 use crate::utils::Cache;
 
+use super::status::StatusOptions;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     Status(crate::widgets::status::Message),
@@ -42,9 +44,12 @@ pub fn notification<'a>(notification: &'a Notification, cache: &'a Cache) -> Ele
     ));
 
     let content = notification.status.as_ref().map(|status| {
-        widget::container(crate::widgets::status(status, &cache).map(Message::Status))
-            .padding(spacing.space_xxs)
-            .class(cosmic::theme::Container::Dialog)
+        widget::container(
+            crate::widgets::status(status, StatusOptions::new(false, true, false, true), &cache)
+                .map(Message::Status),
+        )
+        .padding(spacing.space_xxs)
+        .class(cosmic::theme::Container::Dialog)
     });
 
     let content = widget::column()

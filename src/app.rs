@@ -4,6 +4,7 @@ use crate::config::TootConfig;
 use crate::error::Error;
 use crate::pages::Page;
 use crate::utils::Cache;
+use crate::widgets::status::StatusOptions;
 use crate::{fl, pages, widgets};
 use cosmic::app::{context_drawer, Core, Task};
 use cosmic::cosmic_config;
@@ -18,8 +19,8 @@ use mastodon_async::helpers::toml;
 use mastodon_async::prelude::{Account, Notification, Status, StatusId};
 use mastodon_async::registration::Registered;
 use mastodon_async::scopes::Scopes;
-use mastodon_async::{Data, Mastodon, Registration};
-use std::collections::HashMap;
+use mastodon_async::{Data, Mastodon, NewStatus, Registration};
+use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
 
 const REPOSITORY: &str = "https://github.com/edfloreshz/toot";
@@ -31,6 +32,8 @@ pub struct AppModel {
     nav: nav_bar::Model,
     context_page: ContextPage,
     key_binds: HashMap<menu::KeyBind, MenuAction>,
+    dialog_pages: VecDeque<Dialog>,
+    dialog_editor: widget::text_editor::Content,
     config: TootConfig,
     handler: Option<cosmic_config::Config>,
     instance: String,
@@ -62,6 +65,21 @@ pub enum Message {
     CachceStatus(Status),
     CacheNotification(Notification),
     CacheHandle(String, Handle),
+    Dialog(DialogAction),
+    EditorAction(widget::text_editor::Action),
+}
+
+#[derive(Debug, Clone)]
+pub enum DialogAction {
+    Open(Dialog),
+    Update(Dialog),
+    Close,
+    Complete,
+}
+
+#[derive(Debug, Clone)]
+pub enum Dialog {
+    Reply(NewStatus),
 }
 
 pub struct Flags {
@@ -128,6 +146,8 @@ impl Application for AppModel {
             nav,
             context_page: ContextPage::default(),
             key_binds: HashMap::new(),
+            dialog_pages: VecDeque::new(),
+            dialog_editor: widget::text_editor::Content::default(),
             config: flags.config.clone(),
             handler: flags.handler,
             instance: flags.config.server,
@@ -231,7 +251,64 @@ impl Application for AppModel {
         })
     }
 
+    fn dialog(&self) -> Option<Element<Self::Message>> {
+        let dialog_page = self.dialog_pages.front()?;
+
+        let spacing = cosmic::theme::active().cosmic().spacing;
+
+        let dialog = match dialog_page {
+            Dialog::Reply(new_status) => widget::dialog()
+                .title(fl!("reply"))
+                .control(
+                    widget::container(
+                        widget::scrollable(
+                            widget::column()
+                                .push_maybe(
+                                    self.cache
+                                        .statuses
+                                        .get(&new_status.in_reply_to_id.clone().unwrap())
+                                        .map(|status| {
+                                            widgets::status(
+                                                &status,
+                                                StatusOptions::none(),
+                                                &self.cache,
+                                            )
+                                            .map(Message::Status)
+                                            .apply(widget::container)
+                                            .class(cosmic::style::Container::Card)
+                                        }),
+                                )
+                                .push(
+                                    widget::text_editor(&self.dialog_editor)
+                                        .height(200.)
+                                        .padding(spacing.space_s)
+                                        .on_action(Message::EditorAction),
+                                )
+                                .spacing(spacing.space_xs),
+                        )
+                        .width(Length::Fill),
+                    )
+                    .height(Length::Fixed(400.0))
+                    .width(Length::Fill),
+                )
+                .primary_action(
+                    widget::button::suggested(fl!("reply"))
+                        .on_press_maybe(Some(Message::Dialog(DialogAction::Complete))),
+                )
+                .secondary_action(
+                    widget::button::standard(fl!("cancel"))
+                        .on_press(Message::Dialog(DialogAction::Close)),
+                ),
+        };
+
+        Some(dialog.into())
+    }
+
     fn on_escape(&mut self) -> Task<Self::Message> {
+        if self.dialog_pages.pop_front().is_some() {
+            return Task::none();
+        }
+
         if self.core.window.show_context {
             self.core.window.show_context = false;
         }
@@ -295,7 +372,6 @@ impl Application for AppModel {
             Message::Notifications(message) => tasks.push(self.notifications.update(message)),
             Message::Account(message) => tasks.push(widgets::account::update(message)),
             Message::Status(message) => match message {
-                widgets::status::Message::Reply(status_id) => todo!(),
                 widgets::status::Message::Favorite(status_id, favorited) => {
                     if let Some(mastodon) = self.mastodon.clone() {
                         tasks.push(cosmic::task::future(async move {
@@ -410,7 +486,6 @@ impl Application for AppModel {
                     }
                 }
             }
-
             Message::RegisterMastodonClient => {
                 let mut registration = Registration::new(self.config.url());
                 tasks.push(Task::perform(
@@ -494,6 +569,47 @@ impl Application for AppModel {
             Message::ToggleContextDrawer => {
                 self.core.window.show_context = !self.core.window.show_context;
             }
+            Message::Dialog(action) => match action {
+                DialogAction::Open(dialog) => match dialog {
+                    Dialog::Reply(new_status) => {
+                        if let Some(status) = new_status.status.clone() {
+                            self.dialog_editor = widget::text_editor::Content::with_text(&status);
+                        }
+                        self.dialog_pages.push_back(Dialog::Reply(new_status))
+                    }
+                },
+                DialogAction::Update(dialog_page) => {
+                    self.dialog_pages[0] = dialog_page;
+                }
+                DialogAction::Close => {
+                    self.dialog_pages.pop_front();
+                }
+                DialogAction::Complete => {
+                    if let Some(dialog_page) = self.dialog_pages.pop_front() {
+                        match dialog_page {
+                            Dialog::Reply(mut new_status) => {
+                                new_status.status = Some(self.dialog_editor.text());
+                                if let Some(mastodon) = self.mastodon.clone() {
+                                    tasks.push(cosmic::task::future(async move {
+                                        match mastodon.new_status(new_status).await {
+                                            Ok(status) => cosmic::app::message::app(
+                                                Message::CachceStatus(status),
+                                            ),
+                                            Err(err) => {
+                                                tracing::error!("{err}");
+                                                cosmic::app::message::none()
+                                            }
+                                        }
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            Message::EditorAction(action) => {
+                self.dialog_editor.perform(action);
+            }
             Message::UpdateConfig(config) => {
                 self.config = config;
             }
@@ -559,11 +675,15 @@ impl AppModel {
 
     fn status(&self, id: &StatusId) -> Element<Message> {
         let status = self.cache.statuses.get(&id.to_string()).map(|status| {
-            crate::widgets::status(status, &self.cache)
-                .map(pages::home::Message::Status)
-                .map(Message::Home)
-                .apply(widget::container)
-                .class(cosmic::theme::Container::Dialog)
+            crate::widgets::status(
+                status,
+                StatusOptions::new(true, true, true, false),
+                &self.cache,
+            )
+            .map(pages::home::Message::Status)
+            .map(Message::Home)
+            .apply(widget::container)
+            .class(cosmic::theme::Container::Dialog)
         });
         widget::column().push_maybe(status).into()
     }

@@ -7,7 +7,11 @@ use cosmic::{
 };
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
 
-use crate::{app, utils::Cache, widgets};
+use crate::{
+    app,
+    utils::Cache,
+    widgets::{self, status::StatusOptions},
+};
 
 #[derive(Debug, Clone)]
 pub struct Home {
@@ -43,7 +47,9 @@ impl Home {
             .statuses
             .iter()
             .filter_map(|id| cache.statuses.get(&id.to_string()))
-            .map(|status| crate::widgets::status(status, &cache).map(Message::Status))
+            .map(|status| {
+                crate::widgets::status(status, StatusOptions::all(), &cache).map(Message::Status)
+            })
             .collect();
 
         widget::scrollable(widget::settings::section().extend(statuses))

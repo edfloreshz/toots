@@ -33,3 +33,7 @@ authorization-code = Authorization code
 about = About
 profile = Profile
 status = Status
+
+## Actions
+reply = Reply
+cancel = Cancel
