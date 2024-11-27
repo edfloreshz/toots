@@ -1,7 +1,7 @@
 use cosmic::{widget, Element};
 use mastodon_async::{entities::notification::NotificationType, prelude::Notification};
 
-use crate::utils::Cache;
+use crate::utils::{self, Cache};
 
 use super::status::StatusOptions;
 
@@ -30,11 +30,12 @@ pub fn notification<'a>(notification: &'a Notification, cache: &'a Cache) -> Ele
 
     let action = widget::button::custom(
         widget::row()
-            .push_maybe(
+            .push(
                 cache
                     .handles
                     .get(&notification.account.avatar)
-                    .map(|handle| widget::image(handle).width(20)),
+                    .map(|handle| widget::image(handle).width(20))
+                    .unwrap_or(utils::fallback_avatar().width(20)),
             )
             .push(widget::text(action))
             .spacing(spacing.space_xs),
