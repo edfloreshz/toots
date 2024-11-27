@@ -1,7 +1,7 @@
 use cosmic::{
     iced::{mouse::Interaction, Alignment, Length},
     iced_widget::scrollable::{Direction, Scrollbar},
-    widget, Apply, Element, Task,
+    widget, Element, Task,
 };
 use mastodon_async::{
     prelude::{Account, Status, StatusId},
@@ -53,34 +53,25 @@ pub fn status<'a>(
     cache: &'a Cache,
 ) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
-    let Some(reblog) = &status.reblog else {
-        let header = header(cache, status);
-        let status_text = status_text(status, options);
-        let tags = tags(status, options);
-        let media = media(status, cache, options);
-        let actions = actions(status, options);
-
-        return widget::column()
-            .push(header)
-            .push(status_text)
-            .push_maybe(media)
-            .push_maybe(tags)
-            .push_maybe(actions)
-            .padding(spacing.space_xs)
-            .spacing(spacing.space_xs)
-            .width(Length::Fill)
-            .into();
-    };
-
-    let reblog = cache.statuses.get(&reblog.id.to_string()).unwrap_or(reblog);
-    let indicator = reblog_indicator(cache, status, reblog);
-    let status = self::status(reblog, options, cache)
-        .apply(widget::container)
-        .class(cosmic::theme::Container::Dialog);
+    let reblog_button = reblog_button(cache, status);
+    let status = status
+        .reblog
+        .as_ref()
+        .map(|reblog| {
+            cache
+                .statuses
+                .get(&reblog.id.to_string())
+                .unwrap_or(&*reblog)
+        })
+        .unwrap_or(status);
 
     widget::column()
-        .push(indicator)
-        .push(status)
+        .push_maybe(reblog_button)
+        .push(header(status, cache))
+        .push(content(status, options))
+        .push_maybe(tags(status, options))
+        .push_maybe(media(status, cache, options))
+        .push_maybe(actions(status, options))
         .padding(spacing.space_xs)
         .spacing(spacing.space_xs)
         .width(Length::Fill)
@@ -208,8 +199,8 @@ fn tags<'a>(status: &'a Status, options: StatusOptions) -> Option<Element<'a, Me
 }
 
 fn header<'a>(
-    cache: &'a Cache,
     status: &'a Status,
+    cache: &'a Cache,
 ) -> cosmic::iced_widget::Row<'a, Message, cosmic::Theme> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
@@ -238,7 +229,7 @@ fn header<'a>(
     header
 }
 
-fn status_text<'a>(status: &'a Status, options: StatusOptions) -> Element<'a, Message> {
+fn content<'a>(status: &'a Status, options: StatusOptions) -> Element<'a, Message> {
     let mut status_text: Element<_> = widget::text(
         html2text::config::rich()
             .string_from_read(status.content.as_bytes(), 700)
@@ -255,28 +246,25 @@ fn status_text<'a>(status: &'a Status, options: StatusOptions) -> Element<'a, Me
     status_text
 }
 
-fn reblog_indicator<'a>(
-    cache: &'a Cache,
-    status: &'a Status,
-    reblog: &'a Status,
-) -> widget::Button<'a, Message> {
+fn reblog_button<'a>(cache: &'a Cache, status: &'a Status) -> Option<widget::Button<'a, Message>> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
-    let indicator = widget::button::custom(
-        widget::row()
-            .push(
-                cache
-                    .handles
-                    .get(&status.account.avatar)
-                    .map(|avatar| widget::image(avatar).width(20).height(20))
-                    .unwrap_or(crate::utils::fallback_avatar().width(20).height(20)),
-            )
-            .push(widget::text(format!(
-                "{} boosted",
-                status.account.display_name
-            )))
-            .spacing(spacing.space_xs),
+    (status.reblog.is_some()).then_some(
+        widget::button::custom(
+            widget::row()
+                .push(
+                    cache
+                        .handles
+                        .get(&status.account.avatar)
+                        .map(|avatar| widget::image(avatar).width(20).height(20))
+                        .unwrap_or(crate::utils::fallback_avatar().width(20).height(20)),
+                )
+                .push(widget::text(format!(
+                    "{} boosted",
+                    status.account.display_name
+                )))
+                .spacing(spacing.space_xs),
+        )
+        .on_press(Message::OpenAccount(status.account.clone())),
     )
-    .on_press(Message::OpenAccount(reblog.account.clone()));
-    indicator
 }
