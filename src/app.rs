@@ -456,6 +456,11 @@ impl Application for AppModel {
                         urls.push(attachment.preview_url.clone());
                     }
                 }
+                if let Some(card) = status.card {
+                    if let Some(image) = card.image {
+                        urls.push(image.clone());
+                    }
+                }
                 for attachment in &status.media_attachments {
                     urls.push(attachment.preview_url.clone());
                 }
@@ -470,6 +475,11 @@ impl Application for AppModel {
                 if let Some(status) = &notification.status {
                     urls.push(status.account.avatar.clone());
                     urls.push(status.account.header.clone());
+                    if let Some(card) = &status.card {
+                        if let Some(image) = &card.image {
+                            urls.push(image.clone());
+                        }
+                    }
                     for attachment in &status.media_attachments {
                         urls.push(attachment.preview_url.clone());
                     }

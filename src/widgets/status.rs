@@ -1,14 +1,17 @@
 use cosmic::{
     iced::{mouse::Interaction, Alignment, Length},
     iced_widget::scrollable::{Direction, Scrollbar},
-    widget, Element, Task,
+    widget, Apply, Element, Task,
 };
 use mastodon_async::{
     prelude::{Account, Status, StatusId},
     NewStatus,
 };
 
-use crate::{app, utils::Cache};
+use crate::{
+    app,
+    utils::{self, Cache},
+};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -69,13 +72,41 @@ pub fn status<'a>(
         .push_maybe(reblog_button)
         .push(header(status, cache))
         .push(content(status, options))
-        .push_maybe(tags(status, options))
+        .push_maybe(card(status, cache))
         .push_maybe(media(status, cache, options))
+        .push_maybe(tags(status, options))
         .push_maybe(actions(status, options))
         .padding(spacing.space_xs)
         .spacing(spacing.space_xs)
         .width(Length::Fill)
         .into()
+}
+
+fn card<'a>(status: &'a Status, cache: &'a Cache) -> Option<Element<'a, Message>> {
+    let spacing = cosmic::theme::active().cosmic().spacing;
+    status.card.as_ref().map(|card| {
+        widget::column()
+            .push_maybe(card.image.as_ref().map(|image| {
+                cache
+                    .handles
+                    .get(image)
+                    .map(|image| widget::image(image))
+                    .unwrap_or(utils::fallback_avatar())
+            }))
+            .push(
+                widget::column()
+                    .push(widget::text::title4(&card.title))
+                    .push(widget::text(&card.description))
+                    .spacing(spacing.space_xs)
+                    .padding(spacing.space_xs),
+            )
+            .apply(widget::container)
+            .class(cosmic::style::Container::Dialog)
+            .apply(widget::button::custom)
+            .class(cosmic::style::Button::Image)
+            .on_press(Message::OpenLink(card.url.clone()))
+            .into()
+    })
 }
 
 pub fn update(message: Message) -> Task<app::Message> {
