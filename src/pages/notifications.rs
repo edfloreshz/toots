@@ -12,24 +12,32 @@ use mastodon_async::{
 
 use crate::{app, utils::Cache, widgets};
 
+use super::MastodonPage;
+
 #[derive(Debug, Clone)]
 pub struct Notifications {
-    pub mastodon: Option<Mastodon>,
+    pub mastodon: Mastodon,
     notifications: VecDeque<NotificationId>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    SetClient(Option<Mastodon>),
+    SetClient(Mastodon),
     AppendNotification(Notification),
     PrependNotification(Notification),
     Notification(crate::widgets::notification::Message),
 }
 
+impl MastodonPage for Notifications {
+    fn is_authenticated(&self) -> bool {
+        !self.mastodon.data.token.is_empty()
+    }
+}
+
 impl Notifications {
-    pub fn new() -> Self {
+    pub fn new(mastodon: Mastodon) -> Self {
         Self {
-            mastodon: None,
+            mastodon,
             notifications: VecDeque::new(),
         }
     }
@@ -80,13 +88,12 @@ impl Notifications {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        match self.mastodon.clone() {
-            Some(mastodon) => {
-                Subscription::batch(vec![crate::subscriptions::notifications::timeline(
-                    mastodon,
-                )])
-            }
-            None => Subscription::none(),
+        if self.is_authenticated() {
+            Subscription::batch(vec![crate::subscriptions::notifications::timeline(
+                self.mastodon.clone(),
+            )])
+        } else {
+            Subscription::none()
         }
     }
 }

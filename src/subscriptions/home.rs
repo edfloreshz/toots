@@ -4,10 +4,11 @@ use mastodon_async::Mastodon;
 
 use crate::pages;
 
-pub fn timeline(mastodon: Mastodon, skip: usize) -> Subscription<pages::home::Message> {
+pub fn user_timeline(mastodon: Mastodon, skip: usize) -> Subscription<pages::home::Message> {
     Subscription::run_with_id(
-        format!("timeline-{}", skip),
+        format!("timeline-{}-{}", skip, mastodon.data.base),
         stream::channel(1, move |mut output| async move {
+            println!("{}", format!("timeline-{}-{}", skip, mastodon.data.base));
             let mut stream = Box::pin(
                 mastodon
                     .get_home_timeline()

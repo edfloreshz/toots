@@ -6,8 +6,9 @@ use crate::pages;
 
 pub fn timeline(mastodon: Mastodon) -> Subscription<pages::notifications::Message> {
     Subscription::run_with_id(
-        "notifications",
+        format!("notifications-{}", mastodon.data.base),
         stream::channel(1, |mut output| async move {
+            println!("{}", format!("notifications-{}", mastodon.data.base));
             let mut stream = Box::pin(
                 mastodon
                     .notifications()

@@ -2,6 +2,7 @@
 
 use crate::config::TootConfig;
 use crate::error::Error;
+use crate::pages::public::TimelineType;
 use crate::pages::Page;
 use crate::utils::Cache;
 use crate::widgets::status::StatusOptions;
@@ -39,10 +40,13 @@ pub struct AppModel {
     instance: String,
     code: String,
     registration: Option<Registered>,
-    mastodon: Option<Mastodon>,
+    mastodon: Mastodon,
     cache: Cache,
     home: pages::home::Home,
     notifications: pages::notifications::Notifications,
+    explore: pages::public::Public,
+    local: pages::public::Public,
+    federated: pages::public::Public,
 }
 
 #[derive(Debug, Clone)]
@@ -51,22 +55,25 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     ToggleContextDrawer,
     UpdateConfig(TootConfig),
-    InstanceEdit(String),
+    InstanceEdit,
     RegisterMastodonClient,
     CompleteRegistration,
     StoreMastodonData(Mastodon),
-    CodeUpdate(String),
     StoreRegistration(Option<Registered>),
     Home(pages::home::Message),
     Notifications(pages::notifications::Message),
+    Explore(pages::public::Message),
+    Local(pages::public::Message),
+    Federated(pages::public::Message),
     Account(widgets::account::Message),
     Status(widgets::status::Message),
     Fetch(Vec<Url>),
-    CachceStatus(Status),
+    CacheStatus(Status),
     CacheNotification(Notification),
     CacheHandle(Url, Handle),
     Dialog(DialogAction),
     EditorAction(widget::text_editor::Action),
+    UpdateMastodonInstance,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +87,10 @@ pub enum DialogAction {
 #[derive(Debug, Clone)]
 pub enum Dialog {
     Reply(NewStatus),
+    SwitchInstance(String),
+    Login(String),
+    Code(String),
+    Logout,
 }
 
 pub struct Flags {
@@ -104,7 +115,37 @@ impl Application for AppModel {
     fn init(core: Core, flags: Self::Flags) -> (Self, Task<Self::Message>) {
         let mut nav = nav_bar::Model::default();
 
-        for page in Page::variants() {
+        let instance = instance(flags.config.server.clone());
+
+        let mastodon = match keytar::get_password(Self::APP_ID, "mastodon-data") {
+            Ok(data) => {
+                if data.success {
+                    let data: Data = toml::from_str(&data.password).unwrap();
+                    Mastodon::from(data)
+                } else {
+                    Mastodon::from(Data {
+                        base: instance.into(),
+                        ..Default::default()
+                    })
+                }
+            }
+            Err(err) => {
+                tracing::error!("{err}");
+                Mastodon::from(Data {
+                    base: instance.into(),
+                    ..Default::default()
+                })
+            }
+        };
+
+        let variants = mastodon
+            .data
+            .token
+            .is_empty()
+            .then(|| Page::public_variants())
+            .unwrap_or_else(|| Page::variants());
+
+        for page in variants {
             let id = nav
                 .insert()
                 .text(page.to_string())
@@ -125,21 +166,6 @@ impl Application for AppModel {
             .developers([("Eduardo Flores", "edfloreshz@proton.me")])
             .links([(fl!("repository"), REPOSITORY), (fl!("support"), SUPPORT)]);
 
-        let mastodon = match keytar::get_password(Self::APP_ID, "mastodon-data") {
-            Ok(data) => {
-                if data.success {
-                    let data: Data = toml::from_str(&data.password).unwrap();
-                    Some(Mastodon::from(data))
-                } else {
-                    None
-                }
-            }
-            Err(err) => {
-                tracing::error!("{err}");
-                None
-            }
-        };
-
         let mut app = AppModel {
             core,
             about,
@@ -155,18 +181,16 @@ impl Application for AppModel {
             registration: None,
             mastodon: mastodon.clone(),
             cache: Cache::new(),
-            home: pages::home::Home::new(),
-            notifications: pages::notifications::Notifications::new(),
+            home: pages::home::Home::new(mastodon.clone()),
+            notifications: pages::notifications::Notifications::new(mastodon.clone()),
+            explore: pages::public::Public::new(mastodon.clone(), TimelineType::Public),
+            local: pages::public::Public::new(mastodon.clone(), TimelineType::Local),
+            federated: pages::public::Public::new(mastodon.clone(), TimelineType::Remote),
         };
 
-        let mut tasks = vec![app.update_title()];
+        app.nav.activate_position(0);
 
-        if mastodon.is_some() {
-            tasks.push(
-                app.home
-                    .update(pages::home::Message::SetClient(app.mastodon.clone())),
-            );
-        }
+        let tasks = vec![app.update_title()];
 
         (app, Task::batch(tasks))
     }
@@ -191,6 +215,34 @@ impl Application for AppModel {
         vec![menu_bar.into()]
     }
 
+    fn header_center(&self) -> Vec<Element<Self::Message>> {
+        vec![widget::text(self.instance.clone()).into()]
+    }
+
+    fn header_end(&self) -> Vec<Element<Self::Message>> {
+        if self.mastodon.data.token.is_empty() {
+            vec![
+                // widget::icon::from_name("network-server-symbolic")
+                //     .apply(widget::button::icon)
+                //     .on_press(Message::Dialog(DialogAction::Open(Dialog::SwitchInstance(
+                //         self.instance.clone(),
+                //     ))))
+                //     .into(),
+                widget::icon::from_name("system-users-symbolic")
+                    .apply(widget::button::icon)
+                    .on_press(Message::Dialog(DialogAction::Open(Dialog::Login(
+                        self.instance.clone(),
+                    ))))
+                    .into(),
+            ]
+        } else {
+            vec![widget::icon::from_name("system-log-out-symbolic")
+                .apply(widget::button::icon)
+                .on_press(Message::Dialog(DialogAction::Open(Dialog::Logout)))
+                .into()]
+        }
+    }
+
     fn nav_model(&self) -> Option<&nav_bar::Model> {
         Some(&self.nav)
     }
@@ -199,32 +251,30 @@ impl Application for AppModel {
         self.nav.activate(id);
         let mut tasks = vec![];
         match self.nav.data::<Page>(id).unwrap() {
-            Page::Home => {
-                if self.home.mastodon.is_none() {
-                    tasks.push(
-                        self.home
-                            .update(pages::home::Message::SetClient(self.mastodon.clone())),
-                    )
-                }
-            }
-            Page::Notifications => {
-                if self.notifications.mastodon.is_none() {
-                    tasks.push(
-                        self.notifications
-                            .update(pages::notifications::Message::SetClient(
-                                self.mastodon.clone(),
-                            )),
-                    )
-                }
-            }
+            Page::Home => tasks.push(
+                self.home
+                    .update(pages::home::Message::SetClient(self.mastodon.clone())),
+            ),
+            Page::Notifications => tasks.push(self.notifications.update(
+                pages::notifications::Message::SetClient(self.mastodon.clone()),
+            )),
             Page::Search => (),
             Page::Favorites => (),
             Page::Bookmarks => (),
             Page::Hashtags => (),
             Page::Lists => (),
-            Page::Explore => (),
-            Page::Local => (),
-            Page::Federated => (),
+            Page::Explore => tasks.push(
+                self.explore
+                    .update(pages::public::Message::SetClient(self.mastodon.clone())),
+            ),
+            Page::Local => tasks.push(
+                self.local
+                    .update(pages::public::Message::SetClient(self.mastodon.clone())),
+            ),
+            Page::Federated => tasks.push(
+                self.federated
+                    .update(pages::public::Message::SetClient(self.mastodon.clone())),
+            ),
         };
         tasks.push(self.update_title());
         Task::batch(tasks)
@@ -299,6 +349,10 @@ impl Application for AppModel {
                     widget::button::standard(fl!("cancel"))
                         .on_press(Message::Dialog(DialogAction::Close)),
                 ),
+            Dialog::SwitchInstance(instance) => self.switch_instance(instance.clone()),
+            Dialog::Login(instance) => self.login(instance.clone()),
+            Dialog::Code(code) => self.code(code.clone()),
+            Dialog::Logout => self.logout(),
         };
 
         Some(dialog.into())
@@ -317,25 +371,19 @@ impl Application for AppModel {
     }
 
     fn view(&self) -> Element<Self::Message> {
-        match self.mastodon {
-            Some(_) => match self.nav.active_data::<Page>() {
-                Some(page) => match page {
-                    Page::Home => self.home.view(&self.cache).map(Message::Home),
-                    Page::Notifications => self
-                        .notifications
-                        .view(&self.cache)
-                        .map(Message::Notifications),
-                    _ => widget::text("Not yet implemented").into(),
-                },
-                None => widget::text("Select a page").into(),
+        match self.nav.active_data::<Page>() {
+            Some(page) => match page {
+                Page::Home => self.home.view(&self.cache).map(Message::Home),
+                Page::Notifications => self
+                    .notifications
+                    .view(&self.cache)
+                    .map(Message::Notifications),
+                Page::Explore => self.explore.view(&self.cache).map(Message::Explore),
+                Page::Local => self.local.view(&self.cache).map(Message::Local),
+                Page::Federated => self.federated.view(&self.cache).map(Message::Federated),
+                _ => widget::text("Not yet implemented").into(),
             },
-            None => {
-                if self.registration.is_some() {
-                    self.code()
-                } else {
-                    self.login()
-                }
-            }
+            None => widget::text("Select a page").into(),
         }
         .apply(widget::container)
         .width(Length::Fill)
@@ -358,8 +406,14 @@ impl Application for AppModel {
                 .map(Message::Notifications),
         );
 
-        if let Some(mastodon) = self.mastodon.clone() {
-            subscriptions.push(crate::subscriptions::mastodon_user_events(mastodon));
+        subscriptions.push(self.explore.subscription().map(Message::Explore));
+        subscriptions.push(self.local.subscription().map(Message::Local));
+        subscriptions.push(self.federated.subscription().map(Message::Federated));
+
+        if !self.mastodon.data.token.is_empty() {
+            subscriptions.push(crate::subscriptions::stream_user_events(
+                self.mastodon.clone(),
+            ));
         }
 
         Subscription::batch(subscriptions)
@@ -368,49 +422,56 @@ impl Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
         let mut tasks = vec![];
         match message {
-            Message::Home(message) => tasks.push(self.home.update(message)),
-            Message::Notifications(message) => tasks.push(self.notifications.update(message)),
+            Message::Home(message) => {
+                tasks.push(self.home.update(message));
+            }
+            Message::Notifications(message) => {
+                tasks.push(self.notifications.update(message));
+            }
+            Message::Explore(message) => {
+                tasks.push(self.explore.update(message.clone()));
+            }
+            Message::Local(message) => {
+                tasks.push(self.local.update(message));
+            }
+            Message::Federated(message) => {
+                tasks.push(self.federated.update(message));
+            }
             Message::Account(message) => tasks.push(widgets::account::update(message)),
             Message::Status(message) => match message {
                 widgets::status::Message::Favorite(status_id, favorited) => {
-                    if let Some(mastodon) = self.mastodon.clone() {
-                        tasks.push(cosmic::task::future(async move {
-                            let result = if favorited {
-                                mastodon.unfavourite(&status_id).await
-                            } else {
-                                mastodon.favourite(&status_id).await
-                            };
-                            match result {
-                                Ok(status) => {
-                                    cosmic::app::message::app(Message::CachceStatus(status))
-                                }
-                                Err(err) => {
-                                    tracing::error!("{err}");
-                                    cosmic::app::message::none()
-                                }
+                    let mastodon = self.mastodon.clone();
+                    tasks.push(cosmic::task::future(async move {
+                        let result = if favorited {
+                            mastodon.unfavourite(&status_id).await
+                        } else {
+                            mastodon.favourite(&status_id).await
+                        };
+                        match result {
+                            Ok(status) => cosmic::app::message::app(Message::CacheStatus(status)),
+                            Err(err) => {
+                                tracing::error!("{err}");
+                                cosmic::app::message::none()
                             }
-                        }))
-                    }
+                        }
+                    }))
                 }
                 widgets::status::Message::Boost(status_id, boosted) => {
-                    if let Some(mastodon) = self.mastodon.clone() {
-                        tasks.push(cosmic::task::future(async move {
-                            let result = if boosted {
-                                mastodon.unreblog(&status_id).await
-                            } else {
-                                mastodon.reblog(&status_id).await
-                            };
-                            match result {
-                                Ok(status) => {
-                                    cosmic::app::message::app(Message::CachceStatus(status))
-                                }
-                                Err(err) => {
-                                    tracing::error!("{err}");
-                                    cosmic::app::message::none()
-                                }
+                    let mastodon = self.mastodon.clone();
+                    tasks.push(cosmic::task::future(async move {
+                        let result = if boosted {
+                            mastodon.unreblog(&status_id).await
+                        } else {
+                            mastodon.reblog(&status_id).await
+                        };
+                        match result {
+                            Ok(status) => cosmic::app::message::app(Message::CacheStatus(status)),
+                            Err(err) => {
+                                tracing::error!("{err}");
+                                cosmic::app::message::none()
                             }
-                        }))
-                    }
+                        }
+                    }))
                 }
                 widgets::status::Message::OpenLink(_) => todo!(),
                 _ => tasks.push(widgets::status::update(message)),
@@ -418,7 +479,7 @@ impl Application for AppModel {
             Message::CacheHandle(url, handle) => {
                 self.cache.insert_handle(url.clone(), handle);
             }
-            Message::CachceStatus(status) => {
+            Message::CacheStatus(status) => {
                 self.cache.insert_status(status.clone());
                 let mut urls = vec![status.account.avatar.clone(), status.account.header.clone()];
                 if let Some(reblog) = &status.reblog {
@@ -497,8 +558,8 @@ impl Application for AppModel {
                     }
                 }
             }
-            Message::InstanceEdit(instance) => {
-                self.instance = instance.clone();
+            Message::InstanceEdit => {
+                let instance = self.instance.clone();
                 if let Some(ref handler) = self.handler {
                     match self.config.set_server(handler, instance) {
                         Ok(true) => (),
@@ -567,13 +628,19 @@ impl Application for AppModel {
                 let data = &toml::to_string(&mastodon.data).unwrap();
                 match keytar::set_password(Self::APP_ID, "mastodon-data", data) {
                     Ok(_) => {
-                        self.mastodon = Some(mastodon.clone());
+                        self.mastodon = mastodon;
+                        self.update_navbar();
                         tasks.push(self.on_nav_select(self.nav.active()));
                     }
                     Err(err) => tracing::error!("{err}"),
                 }
             }
-            Message::CodeUpdate(code) => self.code = code,
+            Message::UpdateMastodonInstance => {
+                self.mastodon = Mastodon::from(Data {
+                    base: self.instance().clone().into(),
+                    ..Default::default()
+                });
+            }
             Message::Open(url) => {
                 if let Err(err) = open::that_detached(url) {
                     tracing::error!("{err}")
@@ -598,6 +665,7 @@ impl Application for AppModel {
                         }
                         self.dialog_pages.push_back(Dialog::Reply(new_status))
                     }
+                    _ => self.dialog_pages.push_back(dialog),
                 },
                 DialogAction::Update(dialog_page) => {
                     self.dialog_pages[0] = dialog_page;
@@ -610,18 +678,46 @@ impl Application for AppModel {
                         match dialog_page {
                             Dialog::Reply(mut new_status) => {
                                 new_status.status = Some(self.dialog_editor.text());
-                                if let Some(mastodon) = self.mastodon.clone() {
-                                    tasks.push(cosmic::task::future(async move {
-                                        match mastodon.new_status(new_status).await {
-                                            Ok(status) => cosmic::app::message::app(
-                                                Message::CachceStatus(status),
-                                            ),
-                                            Err(err) => {
-                                                tracing::error!("{err}");
-                                                cosmic::app::message::none()
-                                            }
+                                let mastodon = self.mastodon.clone();
+                                tasks.push(cosmic::task::future(async move {
+                                    match mastodon.new_status(new_status).await {
+                                        Ok(status) => {
+                                            cosmic::app::message::app(Message::CacheStatus(status))
                                         }
-                                    }));
+                                        Err(err) => {
+                                            tracing::error!("{err}");
+                                            cosmic::app::message::none()
+                                        }
+                                    }
+                                }));
+                            }
+                            Dialog::SwitchInstance(instance) => {
+                                self.instance = instance;
+                                tasks.push(self.update(Message::InstanceEdit));
+                                tasks.push(self.update(Message::UpdateMastodonInstance))
+                            }
+                            Dialog::Login(instance) => {
+                                self.instance = instance;
+                                tasks.push(self.update(Message::InstanceEdit));
+                                tasks.push(self.update(Message::RegisterMastodonClient));
+                                tasks.push(self.update(Message::Dialog(DialogAction::Open(
+                                    Dialog::Code(String::new()),
+                                ))))
+                            }
+                            Dialog::Code(code) => {
+                                self.code = code;
+                                tasks.push(self.update(Message::CompleteRegistration))
+                            }
+                            Dialog::Logout => {
+                                self.mastodon = Mastodon::from(Data {
+                                    base: self.instance().into(),
+                                    ..Default::default()
+                                });
+                                self.update_navbar();
+                                if let Err(err) =
+                                    keytar::delete_password(Self::APP_ID, "mastodon-data")
+                                {
+                                    tracing::error!("{err}");
                                 }
                             }
                         }
@@ -653,45 +749,83 @@ impl AppModel {
         }
     }
 
-    fn login(&self) -> Element<Message> {
-        let spacing = cosmic::theme::active().cosmic().spacing;
-        widget::column()
-            .push(widget::icon::from_name("network-server-symbolic").size(48))
-            .push(widget::text::title3(fl!("server-question")))
-            .push(widget::text::body(fl!("server-description")))
-            .push(
-                widget::text_input(fl!("server-url"), &self.instance)
-                    .on_input(Message::InstanceEdit)
-                    .on_submit(Message::RegisterMastodonClient),
+    fn switch_instance(&self, instance: String) -> widget::Dialog<Message> {
+        widget::dialog()
+            .title(fl!("server-question"))
+            .body(fl!("server-description"))
+            .icon(widget::icon::from_name("network-server-symbolic"))
+            .control(
+                widget::text_input(fl!("server-url"), instance)
+                    .on_input(|instance| {
+                        Message::Dialog(DialogAction::Update(Dialog::SwitchInstance(instance)))
+                    })
+                    .on_submit(Message::Dialog(DialogAction::Complete)),
             )
-            .push(
-                widget::button::suggested(fl!("continue"))
-                    .on_press(Message::RegisterMastodonClient),
+            .primary_action(
+                widget::button::suggested(fl!("confirm"))
+                    .on_press(Message::Dialog(DialogAction::Complete)),
             )
-            .spacing(spacing.space_xs)
-            .align_x(Horizontal::Center)
-            .max_width(400.)
-            .into()
+            .secondary_action(
+                widget::button::standard(fl!("cancel"))
+                    .on_press(Message::Dialog(DialogAction::Close)),
+            )
     }
 
-    fn code(&self) -> Element<Message> {
-        let spacing = cosmic::theme::active().cosmic().spacing;
-        widget::column()
-            .push(widget::icon::from_name("network-server-symbolic").size(48))
-            .push(widget::text::title3(fl!("confirm-authorization")))
-            .push(widget::text::body(fl!("confirm-authorization-description")))
-            .push(
-                widget::text_input(fl!("authorization-code"), &self.code)
-                    .on_input(Message::CodeUpdate)
-                    .on_submit(Message::CompleteRegistration),
+    fn login(&self, instance: String) -> widget::Dialog<Message> {
+        widget::dialog()
+            .title(fl!("server-question"))
+            .body(fl!("server-description"))
+            .icon(widget::icon::from_name("network-server-symbolic"))
+            .control(
+                widget::text_input(fl!("server-url"), instance.clone())
+                    .on_input(move |instance| {
+                        Message::Dialog(DialogAction::Update(Dialog::Login(instance.clone())))
+                    })
+                    .on_submit(Message::Dialog(DialogAction::Complete)),
             )
-            .push(
-                widget::button::suggested(fl!("continue")).on_press(Message::CompleteRegistration),
+            .primary_action(
+                widget::button::suggested(fl!("continue"))
+                    .on_press(Message::Dialog(DialogAction::Complete)),
             )
-            .spacing(spacing.space_xs)
-            .align_x(Horizontal::Center)
-            .max_width(400.)
-            .into()
+            .secondary_action(
+                widget::button::standard(fl!("cancel"))
+                    .on_press(Message::Dialog(DialogAction::Close)),
+            )
+    }
+
+    fn code(&self, code: String) -> widget::Dialog<Message> {
+        widget::dialog()
+            .title(fl!("confirm-authorization"))
+            .body(fl!("confirm-authorization-description"))
+            .icon(widget::icon::from_name("network-server-symbolic"))
+            .control(
+                widget::text_input(fl!("authorization-code"), code.clone())
+                    .on_input(|code| Message::Dialog(DialogAction::Update(Dialog::Code(code))))
+                    .on_submit(Message::Dialog(DialogAction::Complete)),
+            )
+            .primary_action(
+                widget::button::suggested(fl!("confirm"))
+                    .on_press(Message::Dialog(DialogAction::Complete)),
+            )
+            .secondary_action(
+                widget::button::standard(fl!("cancel"))
+                    .on_press(Message::Dialog(DialogAction::Close)),
+            )
+    }
+
+    fn logout(&self) -> widget::Dialog<Message> {
+        widget::dialog()
+            .title(fl!("logout-question"))
+            .body(fl!("logout-description"))
+            .icon(widget::icon::from_name("system-log-out-symbolic"))
+            .primary_action(
+                widget::button::suggested(fl!("continue"))
+                    .on_press(Message::Dialog(DialogAction::Complete)),
+            )
+            .secondary_action(
+                widget::button::standard(fl!("cancel"))
+                    .on_press(Message::Dialog(DialogAction::Close)),
+            )
     }
 
     fn status(&self, id: &StatusId) -> Element<Message> {
@@ -714,6 +848,45 @@ impl AppModel {
     }
 }
 
+fn instance(instance: impl Into<String>) -> String {
+    let instance: String = instance.into();
+    instance
+        .is_empty()
+        .then(|| format!("https://{}", "mastodon.social".to_string()))
+        .unwrap_or(format!("https://{}", instance))
+}
+
+impl AppModel
+where
+    Self: Application,
+{
+    fn instance(&self) -> String {
+        instance(self.instance.clone())
+    }
+
+    fn update_navbar(&mut self) {
+        self.nav.clear();
+
+        let variants = self
+            .mastodon
+            .data
+            .token
+            .is_empty()
+            .then(|| Page::public_variants())
+            .unwrap_or_else(|| Page::variants());
+
+        for page in variants {
+            self.nav
+                .insert()
+                .text(page.to_string())
+                .icon(widget::icon::from_name(page.icon()))
+                .data::<Page>(page.clone());
+
+            self.nav.activate_position(0);
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum ContextPage {
     #[default]
@@ -721,6 +894,7 @@ pub enum ContextPage {
     Account(Account),
     Status(StatusId),
 }
+
 impl ContextPage {
     fn title(&self) -> String {
         match self {

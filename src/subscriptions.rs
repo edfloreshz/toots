@@ -8,8 +8,9 @@ use crate::app;
 
 pub mod home;
 pub mod notifications;
+pub mod public;
 
-pub fn mastodon_user_events(mastodon: Mastodon) -> Subscription<app::Message> {
+pub fn stream_user_events(mastodon: Mastodon) -> Subscription<app::Message> {
     Subscription::run_with_id(
         "posts",
         stream::channel(1, |output| async move {

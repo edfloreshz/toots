@@ -156,25 +156,44 @@ fn actions(status: &Status, options: StatusOptions) -> Option<Element<Message>> 
             .push(
                 widget::button::icon(widget::icon::from_name("emblem-shared-symbolic"))
                     .label(status.reblogs_count.to_string())
-                    .class(if status.reblogged.unwrap() {
-                        cosmic::theme::Button::Suggested
-                    } else {
-                        cosmic::theme::Button::Icon
-                    })
-                    .on_press(Message::Boost(status.id.clone(), status.reblogged.unwrap())),
+                    .class(
+                        status
+                            .reblogged
+                            .map(|reblogged| {
+                                if reblogged {
+                                    cosmic::theme::Button::Suggested
+                                } else {
+                                    cosmic::theme::Button::Icon
+                                }
+                            })
+                            .unwrap_or(cosmic::theme::Button::Icon),
+                    )
+                    .on_press_maybe(
+                        status
+                            .reblogged
+                            .map(|reblogged| Message::Boost(status.id.clone(), reblogged)),
+                    ),
             )
             .push(
                 widget::button::icon(widget::icon::from_name("starred-symbolic"))
                     .label(status.favourites_count.to_string())
-                    .class(if status.favourited.unwrap() {
-                        cosmic::theme::Button::Suggested
-                    } else {
-                        cosmic::theme::Button::Icon
-                    })
-                    .on_press(Message::Favorite(
-                        status.id.clone(),
-                        status.favourited.unwrap(),
-                    )),
+                    .class(
+                        status
+                            .favourited
+                            .map(|favourited| {
+                                if favourited {
+                                    cosmic::theme::Button::Suggested
+                                } else {
+                                    cosmic::theme::Button::Icon
+                                }
+                            })
+                            .unwrap_or(cosmic::theme::Button::Icon),
+                    )
+                    .on_press_maybe(
+                        status
+                            .favourited
+                            .map(|favourited| Message::Favorite(status.id.clone(), favourited)),
+                    ),
             )
             .spacing(spacing.space_xs)
             .into()

@@ -3623,7 +3623,7 @@ dependencies = [
 [[package]]
 name = "mastodon-async"
 version = "1.3.2"
-source = "git+https://github.com/dscottboggs/mastodon-async#5054c03633453135ea2af8b4bcec84f8bcaa6247"
+source = "git+https://github.com/edfloreshz-ext/mastodon-async#2a4f5363104f8d2bc5be429735c2bcb0add7a2de"
 dependencies = [
  "derive_builder",
  "derive_deref",
@@ -3655,7 +3655,7 @@ dependencies = [
 [[package]]
 name = "mastodon-async-entities"
 version = "1.3.2"
-source = "git+https://github.com/dscottboggs/mastodon-async#5054c03633453135ea2af8b4bcec84f8bcaa6247"
+source = "git+https://github.com/edfloreshz-ext/mastodon-async#2a4f5363104f8d2bc5be429735c2bcb0add7a2de"
 dependencies = [
  "classic-bitfield",
  "derive_builder",

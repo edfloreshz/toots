@@ -4,6 +4,11 @@ use crate::fl;
 
 pub mod home;
 pub mod notifications;
+pub mod public;
+
+pub trait MastodonPage {
+    fn is_authenticated(&self) -> bool;
+}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Page {
@@ -38,8 +43,18 @@ impl Display for Page {
 }
 
 impl Page {
-    pub fn variants() -> [Self; 10] {
-        [
+    pub fn public_variants() -> Vec<Page> {
+        vec![
+            Self::Explore,
+            Self::Local,
+            Self::Federated,
+            Self::Search,
+            Self::Hashtags,
+        ]
+    }
+
+    pub fn variants() -> Vec<Page> {
+        vec![
             Self::Home,
             Self::Notifications,
             Self::Search,

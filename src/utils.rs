@@ -41,6 +41,12 @@ impl Cache {
     pub fn insert_handle(&mut self, url: Url, handle: Handle) {
         self.handles.insert(url, handle);
     }
+
+    pub fn clear(&mut self) {
+        self.statuses.clear();
+        self.notifications.clear();
+        self.handles.clear();
+    }
 }
 
 pub fn fallback_avatar<'a>() -> widget::Image<'a> {

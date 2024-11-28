@@ -34,6 +34,13 @@ about = About
 profile = Profile
 status = Status
 
+## Dialogs
+switch-instance = Switch instance
+logout-question = Are you sure you want to logout?
+logout-description = You will need to login again to access your account.
+
 ## Actions
 reply = Reply
 cancel = Cancel
+login = Login
+confirm = Confirm
