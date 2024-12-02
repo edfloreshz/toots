@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 
 use cosmic::{
-    iced::Subscription,
+    iced::{Length, Subscription},
     iced_widget::scrollable::{Direction, Scrollbar},
     widget, Apply, Element, Task,
 };
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
+use reqwest::Url;
 
 use crate::{
     app,
@@ -31,6 +32,7 @@ pub enum Message {
     DeleteStatus(String),
     Status(crate::widgets::status::Message),
     LoadMore(bool),
+    CacheHandle(Url, cosmic::widget::image::Handle),
 }
 
 impl MastodonPage for Home {
@@ -65,10 +67,11 @@ impl Home {
                 Scrollbar::default().spacing(spacing.space_xxs),
             ))
             .on_scroll(|viewport| {
-                Message::LoadMore(!self.loading && viewport.relative_offset().y >= 0.85)
+                Message::LoadMore(!self.loading && viewport.relative_offset().y == 1.0)
             })
             .apply(widget::container)
             .max_width(700)
+            .height(Length::Fill)
             .into()
     }
 
@@ -86,6 +89,11 @@ impl Home {
                 self.loading = false;
                 self.statuses.push_back(status.id.clone());
                 tasks.push(cosmic::task::message(app::Message::CacheStatus(status)));
+            }
+            Message::CacheHandle(url, handle) => {
+                tasks.push(cosmic::task::message(app::Message::CacheHandle(
+                    url, handle,
+                )));
             }
             Message::PrependStatus(status) => {
                 self.loading = false;

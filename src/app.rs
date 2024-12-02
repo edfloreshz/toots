@@ -399,16 +399,24 @@ impl Application for AppModel {
             .watch_config::<TootConfig>(Self::APP_ID)
             .map(|update| Message::UpdateConfig(update.config))];
 
-        subscriptions.push(self.home.subscription().map(Message::Home));
-        subscriptions.push(
-            self.notifications
-                .subscription()
-                .map(Message::Notifications),
-        );
-
-        subscriptions.push(self.explore.subscription().map(Message::Explore));
-        subscriptions.push(self.local.subscription().map(Message::Local));
-        subscriptions.push(self.federated.subscription().map(Message::Federated));
+        match self.nav.active_data::<Page>().unwrap() {
+            Page::Home => subscriptions.push(self.home.subscription().map(Message::Home)),
+            Page::Notifications => subscriptions.push(
+                self.notifications
+                    .subscription()
+                    .map(Message::Notifications),
+            ),
+            Page::Search => (),
+            Page::Favorites => (),
+            Page::Bookmarks => (),
+            Page::Hashtags => (),
+            Page::Lists => (),
+            Page::Explore => subscriptions.push(self.explore.subscription().map(Message::Explore)),
+            Page::Local => subscriptions.push(self.local.subscription().map(Message::Local)),
+            Page::Federated => {
+                subscriptions.push(self.federated.subscription().map(Message::Federated))
+            }
+        };
 
         if !self.mastodon.data.token.is_empty() {
             subscriptions.push(crate::subscriptions::stream_user_events(
@@ -481,54 +489,9 @@ impl Application for AppModel {
             }
             Message::CacheStatus(status) => {
                 self.cache.insert_status(status.clone());
-                let mut urls = vec![status.account.avatar.clone(), status.account.header.clone()];
-                if let Some(reblog) = &status.reblog {
-                    urls.push(reblog.account.avatar.clone());
-                    urls.push(reblog.account.header.clone());
-                    if let Some(card) = &reblog.card {
-                        if let Some(image) = &card.image {
-                            if let Ok(url) = Url::from_str(image) {
-                                urls.push(url);
-                            }
-                        }
-                    }
-                    for attachment in &reblog.media_attachments {
-                        urls.push(attachment.preview_url.clone());
-                    }
-                }
-                if let Some(card) = status.card {
-                    if let Some(image) = card.image {
-                        if let Ok(url) = Url::from_str(&image) {
-                            urls.push(url);
-                        }
-                    }
-                }
-                for attachment in &status.media_attachments {
-                    urls.push(attachment.preview_url.clone());
-                }
-                tasks.push(self.update(Message::Fetch(urls)));
             }
             Message::CacheNotification(notification) => {
                 self.cache.insert_notification(notification.clone());
-                let mut urls = vec![
-                    notification.account.avatar.clone(),
-                    notification.account.header.clone(),
-                ];
-                if let Some(status) = &notification.status {
-                    urls.push(status.account.avatar.clone());
-                    urls.push(status.account.header.clone());
-                    if let Some(card) = &status.card {
-                        if let Some(image) = &card.image {
-                            if let Ok(url) = Url::from_str(image) {
-                                urls.push(url);
-                            }
-                        }
-                    }
-                    for attachment in &status.media_attachments {
-                        urls.push(attachment.preview_url.clone());
-                    }
-                }
-                tasks.push(self.update(Message::Fetch(urls)));
             }
             Message::Fetch(urls) => {
                 for url in urls {

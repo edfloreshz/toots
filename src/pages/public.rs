@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 
 use cosmic::{
-    iced::Subscription,
+    iced::{Length, Subscription},
     iced_widget::scrollable::{Direction, Scrollbar},
     widget, Apply, Element, Task,
 };
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
+use reqwest::Url;
 
 use crate::{
     app,
@@ -34,6 +35,7 @@ pub enum Message {
     SetClient(Mastodon),
     AppendStatus(Status),
     Status(crate::widgets::status::Message),
+    CacheHandle(Url, cosmic::widget::image::Handle),
 }
 
 impl MastodonPage for Public {
@@ -68,6 +70,7 @@ impl Public {
             ))
             .apply(widget::container)
             .max_width(700)
+            .height(Length::Fill)
             .into()
     }
 
@@ -75,6 +78,11 @@ impl Public {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
+            Message::CacheHandle(url, handle) => {
+                tasks.push(cosmic::task::message(app::Message::CacheHandle(
+                    url, handle,
+                )));
+            }
             Message::AppendStatus(status) => {
                 self.statuses.push_back(status.id.clone());
                 tasks.push(cosmic::task::message(app::Message::CacheStatus(status)));

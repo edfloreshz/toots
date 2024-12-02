@@ -7,6 +7,8 @@ use cosmic::{
 use mastodon_async::prelude::*;
 use reqwest::Url;
 
+use crate::error::Error;
+
 #[derive(Debug, Clone)]
 pub struct Cache {
     pub handles: HashMap<Url, Handle>,
@@ -57,4 +59,16 @@ pub fn fallback_avatar<'a>() -> widget::Image<'a> {
 
 pub fn fallback_handle() -> widget::image::Handle {
     image::Handle::from_bytes(include_bytes!("../assets/missing.png").to_vec())
+}
+
+pub async fn get(url: impl ToString) -> Result<Handle, Error> {
+    let response = reqwest::get(url.to_string()).await?;
+    match response.error_for_status() {
+        Ok(response) => {
+            let bytes = response.bytes().await?;
+            let handle = Handle::from_bytes(bytes.to_vec());
+            Ok(handle)
+        }
+        Err(err) => Err(err.into()),
+    }
 }

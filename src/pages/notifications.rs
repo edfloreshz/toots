@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cosmic::{
-    iced::Subscription,
+    iced::{Length, Subscription},
     iced_widget::scrollable::{Direction, Scrollbar},
     widget, Apply, Element, Task,
 };
@@ -9,6 +9,7 @@ use mastodon_async::{
     entities::notification::Notification,
     prelude::{Mastodon, NotificationId},
 };
+use reqwest::Url;
 
 use crate::{app, utils::Cache, widgets};
 
@@ -26,6 +27,7 @@ pub enum Message {
     AppendNotification(Notification),
     PrependNotification(Notification),
     Notification(crate::widgets::notification::Message),
+    CacheHandle(Url, cosmic::widget::image::Handle),
 }
 
 impl MastodonPage for Notifications {
@@ -59,6 +61,7 @@ impl Notifications {
             ))
             .apply(widget::container)
             .max_width(700)
+            .height(Length::Fill)
             .into()
     }
 
@@ -66,6 +69,11 @@ impl Notifications {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
+            Message::CacheHandle(url, handle) => {
+                tasks.push(cosmic::task::message(app::Message::CacheHandle(
+                    url, handle,
+                )));
+            }
             Message::AppendNotification(notification) => {
                 self.notifications.push_back(notification.id.clone());
                 tasks.push(cosmic::task::message(app::Message::CacheNotification(
