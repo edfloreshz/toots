@@ -1,6 +1,7 @@
 use capitalize::Capitalize;
 use cosmic::{
-    iced::{alignment::Horizontal, Length},
+    iced::{alignment::Horizontal, ContentFit, Length},
+    iced_widget::Stack,
     widget::{self, image::Handle},
     Apply, Element, Task,
 };
@@ -21,10 +22,20 @@ pub fn account<'a>(
 ) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
-    let header = handles.get(&account.header).map(widget::image);
-    let avatar = handles
-        .get(&account.avatar)
-        .map(|handle| widget::image(handle).width(100));
+    let header = handles.get(&account.header).map(|handle| {
+        widget::image(handle)
+            .content_fit(ContentFit::Cover)
+            .height(120.0)
+    });
+    let avatar = handles.get(&account.avatar).map(|handle| {
+        widget::container(
+            widget::button::image(handle)
+                .on_press(Message::Open(account.avatar.clone()))
+                .width(100),
+        )
+        .center(Length::Fill)
+    });
+    let stack = Stack::new().push_maybe(header).push_maybe(avatar);
     let display_name = widget::text(&account.display_name).size(18);
     let username = widget::button::link(format!("@{}", account.username))
         .on_press(Message::Open(account.url.clone()));
@@ -86,8 +97,7 @@ pub fn account<'a>(
     .class(cosmic::style::Container::Card);
 
     let content = widget::column()
-        .push_maybe(header)
-        .push_maybe(avatar)
+        .push(stack)
         .push(display_name)
         .push(username)
         .push_maybe(bio)
