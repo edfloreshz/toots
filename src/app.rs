@@ -98,7 +98,7 @@ pub struct Flags {
 }
 
 impl Application for AppModel {
-    type Executor = cosmic::executor::Default;
+    type Executor = cosmic::executor::multi::Executor;
     type Flags = Flags;
     type Message = Message;
     const APP_ID: &'static str = "dev.edfloreshz.Toot";
