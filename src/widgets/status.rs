@@ -273,11 +273,12 @@ fn header<'a>(
             .on_press(Message::OpenAccount(status.account.clone())),
         )
         .push(
-            widget::button::link(format!(
-                "{} @{}",
-                status.account.display_name, status.account.username
-            ))
-            .on_press(Message::OpenAccount(status.account.clone())),
+            widget::column()
+                .push(widget::text(status.account.display_name.clone()).size(18))
+                .push(
+                    widget::button::link(format!("@{}", status.account.username.clone()))
+                        .on_press(Message::OpenAccount(status.account.clone())),
+                ),
         )
         .align_y(Alignment::Center)
         .spacing(spacing.space_xs);
