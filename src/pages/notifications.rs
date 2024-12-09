@@ -27,7 +27,7 @@ pub enum Message {
     AppendNotification(Notification),
     PrependNotification(Notification),
     Notification(crate::widgets::notification::Message),
-    CacheHandle(Url, cosmic::widget::image::Handle),
+    FetchHandle(Url),
 }
 
 impl MastodonPage for Notifications {
@@ -69,10 +69,8 @@ impl Notifications {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
-            Message::CacheHandle(url, handle) => {
-                tasks.push(cosmic::task::message(app::Message::CacheHandle(
-                    url, handle,
-                )));
+            Message::FetchHandle(url) => {
+                tasks.push(cosmic::task::message(app::Message::Fetch(url)));
             }
             Message::AppendNotification(notification) => {
                 self.notifications.push_back(notification.id.clone());

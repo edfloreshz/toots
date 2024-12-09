@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: {{LICENSE}}
 
 use crate::config::TootConfig;
-use crate::error::Error;
 use crate::pages::public::TimelineType;
 use crate::pages::Page;
-use crate::utils::Cache;
+use crate::utils::{self, Cache};
 use crate::widgets::status::StatusOptions;
 use crate::{fl, pages, widgets};
 use cosmic::app::{context_drawer, Core, Task};
@@ -67,7 +66,7 @@ pub enum Message {
     Federated(pages::public::Message),
     Account(widgets::account::Message),
     Status(widgets::status::Message),
-    Fetch(Vec<Url>),
+    Fetch(Url),
     CacheStatus(Status),
     CacheNotification(Notification),
     CacheHandle(Url, Handle),
@@ -399,24 +398,15 @@ impl Application for AppModel {
             .watch_config::<TootConfig>(Self::APP_ID)
             .map(|update| Message::UpdateConfig(update.config))];
 
-        match self.nav.active_data::<Page>().unwrap() {
-            Page::Home => subscriptions.push(self.home.subscription().map(Message::Home)),
-            Page::Notifications => subscriptions.push(
-                self.notifications
-                    .subscription()
-                    .map(Message::Notifications),
-            ),
-            Page::Search => (),
-            Page::Favorites => (),
-            Page::Bookmarks => (),
-            Page::Hashtags => (),
-            Page::Lists => (),
-            Page::Explore => subscriptions.push(self.explore.subscription().map(Message::Explore)),
-            Page::Local => subscriptions.push(self.local.subscription().map(Message::Local)),
-            Page::Federated => {
-                subscriptions.push(self.federated.subscription().map(Message::Federated))
-            }
-        };
+        subscriptions.push(self.home.subscription().map(Message::Home));
+        subscriptions.push(
+            self.notifications
+                .subscription()
+                .map(Message::Notifications),
+        );
+        subscriptions.push(self.explore.subscription().map(Message::Explore));
+        subscriptions.push(self.local.subscription().map(Message::Local));
+        subscriptions.push(self.federated.subscription().map(Message::Federated));
 
         if !self.mastodon.data.token.is_empty() {
             subscriptions.push(crate::subscriptions::stream_user_events(
@@ -493,32 +483,26 @@ impl Application for AppModel {
             Message::CacheNotification(notification) => {
                 self.cache.insert_notification(notification.clone());
             }
-            Message::Fetch(urls) => {
-                for url in urls {
-                    if !self.cache.handles.contains_key(&url) {
-                        tasks.push(Task::perform(
-                            async move {
-                                let response = reqwest::get(url.clone()).await?;
-                                match response.error_for_status() {
-                                    Ok(response) => {
-                                        let bytes = response.bytes().await?;
-                                        let handle = Handle::from_bytes(bytes.to_vec());
-                                        Ok((url, handle))
-                                    }
-                                    Err(err) => Err(err.into()),
-                                }
-                            },
-                            |response: Result<(Url, Handle), Error>| match response {
-                                Ok((url, handle)) => {
-                                    cosmic::app::message::app(Message::CacheHandle(url, handle))
-                                }
+            Message::Fetch(url) => {
+                if !self.cache.handles.contains_key(&url) {
+                    tasks.push(Task::perform(
+                        async move {
+                            match utils::get(&url).await {
+                                Ok(handle) => Some((url, handle)),
                                 Err(err) => {
-                                    tracing::error!("{err}");
-                                    cosmic::app::message::none()
+                                    tracing::error!("Failed to fetch image: {}", err);
+                                    None
                                 }
-                            },
-                        ));
-                    }
+                            }
+                        },
+                        |result| match result {
+                            Some((url, handle)) => cosmic::app::message::app(Message::CacheHandle(
+                                url.clone(),
+                                handle.clone(),
+                            )),
+                            None => cosmic::app::message::none(),
+                        },
+                    ));
                 }
             }
             Message::InstanceEdit => {

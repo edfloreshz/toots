@@ -35,7 +35,7 @@ pub enum Message {
     SetClient(Mastodon),
     AppendStatus(Status),
     Status(crate::widgets::status::Message),
-    CacheHandle(Url, cosmic::widget::image::Handle),
+    FetchHandle(Url),
 }
 
 impl MastodonPage for Public {
@@ -78,10 +78,8 @@ impl Public {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
-            Message::CacheHandle(url, handle) => {
-                tasks.push(cosmic::task::message(app::Message::CacheHandle(
-                    url, handle,
-                )));
+            Message::FetchHandle(url) => {
+                tasks.push(cosmic::task::message(app::Message::Fetch(url)));
             }
             Message::AppendStatus(status) => {
                 self.statuses.push_back(status.id.clone());

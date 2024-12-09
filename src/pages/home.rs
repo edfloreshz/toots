@@ -32,7 +32,7 @@ pub enum Message {
     DeleteStatus(String),
     Status(crate::widgets::status::Message),
     LoadMore(bool),
-    CacheHandle(Url, cosmic::widget::image::Handle),
+    FetchHandle(Url),
 }
 
 impl MastodonPage for Home {
@@ -90,10 +90,8 @@ impl Home {
                 self.statuses.push_back(status.id.clone());
                 tasks.push(cosmic::task::message(app::Message::CacheStatus(status)));
             }
-            Message::CacheHandle(url, handle) => {
-                tasks.push(cosmic::task::message(app::Message::CacheHandle(
-                    url, handle,
-                )));
+            Message::FetchHandle(url) => {
+                tasks.push(cosmic::task::message(app::Message::Fetch(url)));
             }
             Message::PrependStatus(status) => {
                 self.loading = false;

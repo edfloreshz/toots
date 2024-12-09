@@ -5,7 +5,7 @@ use futures_util::SinkExt;
 use mastodon_async::Mastodon;
 use reqwest::Url;
 
-use crate::{pages, utils};
+use crate::pages;
 
 pub fn timeline(mastodon: Mastodon) -> Subscription<pages::public::Message> {
     Subscription::run_with_id(
@@ -53,21 +53,11 @@ pub fn timeline(mastodon: Mastodon) -> Subscription<pages::public::Message> {
                         }
 
                         for url in &urls {
-                            match utils::get(&url).await {
-                                Ok(handle) => {
-                                    if let Err(err) = output
-                                        .send(pages::public::Message::CacheHandle(
-                                            url.clone(),
-                                            handle,
-                                        ))
-                                        .await
-                                    {
-                                        tracing::error!("Failed to send image handle: {}", err);
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::error!("Failed to fetch image: {}", err);
-                                }
+                            if let Err(err) = output
+                                .send(pages::public::Message::FetchHandle(url.clone()))
+                                .await
+                            {
+                                tracing::error!("Failed to send image handle: {}", err);
                             }
                         }
                         urls.clear();
@@ -129,21 +119,11 @@ pub fn local_timeline(mastodon: Mastodon) -> Subscription<pages::public::Message
                         }
 
                         for url in &urls {
-                            match utils::get(&url).await {
-                                Ok(handle) => {
-                                    if let Err(err) = output
-                                        .send(pages::public::Message::CacheHandle(
-                                            url.clone(),
-                                            handle,
-                                        ))
-                                        .await
-                                    {
-                                        tracing::error!("Failed to send image handle: {}", err);
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::error!("Failed to fetch image: {}", err);
-                                }
+                            if let Err(err) = output
+                                .send(pages::public::Message::FetchHandle(url.clone()))
+                                .await
+                            {
+                                tracing::error!("Failed to send image handle: {}", err);
                             }
                         }
                         urls.clear();
@@ -205,21 +185,11 @@ pub fn remote_timeline(mastodon: Mastodon) -> Subscription<pages::public::Messag
                         }
 
                         for url in &urls {
-                            match utils::get(&url).await {
-                                Ok(handle) => {
-                                    if let Err(err) = output
-                                        .send(pages::public::Message::CacheHandle(
-                                            url.clone(),
-                                            handle,
-                                        ))
-                                        .await
-                                    {
-                                        tracing::error!("Failed to send image handle: {}", err);
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::error!("Failed to fetch image: {}", err);
-                                }
+                            if let Err(err) = output
+                                .send(pages::public::Message::FetchHandle(url.clone()))
+                                .await
+                            {
+                                tracing::error!("Failed to send image handle: {}", err);
                             }
                         }
                         urls.clear();

@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use mastodon_async::Mastodon;
 use reqwest::Url;
 
-use crate::{pages, utils};
+use crate::pages;
 
 pub fn user_timeline(mastodon: Mastodon, skip: usize) -> Subscription<pages::home::Message> {
     Subscription::run_with_id(
@@ -64,18 +64,11 @@ pub fn user_timeline(mastodon: Mastodon, skip: usize) -> Subscription<pages::hom
                 }
 
                 for url in &urls {
-                    match utils::get(&url).await {
-                        Ok(handle) => {
-                            if let Err(err) = output
-                                .send(pages::home::Message::CacheHandle(url.clone(), handle))
-                                .await
-                            {
-                                tracing::error!("Failed to send image handle: {}", err);
-                            }
-                        }
-                        Err(err) => {
-                            tracing::error!("Failed to fetch image: {}", err);
-                        }
+                    if let Err(err) = output
+                        .send(pages::home::Message::FetchHandle(url.clone()))
+                        .await
+                    {
+                        tracing::error!("Failed to send image handle: {}", err);
                     }
                 }
                 urls.clear();
