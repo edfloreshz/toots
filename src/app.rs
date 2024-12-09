@@ -398,15 +398,27 @@ impl Application for AppModel {
             .watch_config::<TootConfig>(Self::APP_ID)
             .map(|update| Message::UpdateConfig(update.config))];
 
-        subscriptions.push(self.home.subscription().map(Message::Home));
-        subscriptions.push(
-            self.notifications
-                .subscription()
-                .map(Message::Notifications),
-        );
-        subscriptions.push(self.explore.subscription().map(Message::Explore));
-        subscriptions.push(self.local.subscription().map(Message::Local));
-        subscriptions.push(self.federated.subscription().map(Message::Federated));
+        match self.nav.active_data::<Page>() {
+            Some(Page::Home) => subscriptions.push(self.home.subscription().map(Message::Home)),
+            Some(Page::Notifications) => subscriptions.push(
+                self.notifications
+                    .subscription()
+                    .map(Message::Notifications),
+            ),
+            Some(Page::Search) => (),
+            Some(Page::Favorites) => (),
+            Some(Page::Bookmarks) => (),
+            Some(Page::Hashtags) => (),
+            Some(Page::Lists) => (),
+            Some(Page::Explore) => {
+                subscriptions.push(self.explore.subscription().map(Message::Explore))
+            }
+            Some(Page::Local) => subscriptions.push(self.local.subscription().map(Message::Local)),
+            Some(Page::Federated) => {
+                subscriptions.push(self.federated.subscription().map(Message::Federated))
+            }
+            None => (),
+        };
 
         if !self.mastodon.data.token.is_empty() {
             subscriptions.push(crate::subscriptions::stream_user_events(

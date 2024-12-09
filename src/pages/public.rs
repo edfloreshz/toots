@@ -91,16 +91,26 @@ impl Public {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let subscription = match self.timeline {
-            TimelineType::Public => crate::subscriptions::public::timeline(self.mastodon.clone()),
-            TimelineType::Local => {
-                crate::subscriptions::public::local_timeline(self.mastodon.clone())
-            }
-            TimelineType::Remote => {
-                crate::subscriptions::public::remote_timeline(self.mastodon.clone())
-            }
-        };
+        if self.statuses.is_empty() {
+            return match self.timeline {
+                TimelineType::Public => {
+                    Subscription::batch(vec![crate::subscriptions::public::timeline(
+                        self.mastodon.clone(),
+                    )])
+                }
+                TimelineType::Local => {
+                    Subscription::batch(vec![crate::subscriptions::public::local_timeline(
+                        self.mastodon.clone(),
+                    )])
+                }
+                TimelineType::Remote => {
+                    Subscription::batch(vec![crate::subscriptions::public::remote_timeline(
+                        self.mastodon.clone(),
+                    )])
+                }
+            };
+        }
 
-        Subscription::batch(vec![subscription])
+        Subscription::none()
     }
 }

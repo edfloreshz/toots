@@ -107,7 +107,9 @@ impl Home {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.is_authenticated() {
+        if self.is_authenticated()
+            && (self.statuses.is_empty() || self.statuses.len() != self.skip + 20)
+        {
             Subscription::batch(vec![crate::subscriptions::home::user_timeline(
                 self.mastodon.clone(),
                 self.skip,

@@ -94,12 +94,12 @@ impl Notifications {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.is_authenticated() {
-            Subscription::batch(vec![crate::subscriptions::notifications::timeline(
+        if self.is_authenticated() && self.notifications.is_empty() {
+            return Subscription::batch(vec![crate::subscriptions::notifications::timeline(
                 self.mastodon.clone(),
-            )])
-        } else {
-            Subscription::none()
+            )]);
         }
+
+        Subscription::none()
     }
 }
