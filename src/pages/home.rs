@@ -6,11 +6,10 @@ use cosmic::{
     widget, Apply, Element, Task,
 };
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
-use reqwest::Url;
 
 use crate::{
     app,
-    utils::Cache,
+    utils::{self, Cache},
     widgets::{self, status::StatusOptions},
 };
 
@@ -32,7 +31,6 @@ pub enum Message {
     DeleteStatus(String),
     Status(crate::widgets::status::Message),
     LoadMore(bool),
-    FetchHandle(Url),
 }
 
 impl MastodonPage for Home {
@@ -88,10 +86,13 @@ impl Home {
             Message::AppendStatus(status) => {
                 self.loading = false;
                 self.statuses.push_back(status.id.clone());
-                tasks.push(cosmic::task::message(app::Message::CacheStatus(status)));
-            }
-            Message::FetchHandle(url) => {
-                tasks.push(cosmic::task::message(app::Message::Fetch(url)));
+                tasks.push(cosmic::task::message(app::Message::CacheStatus(
+                    status.clone(),
+                )));
+
+                tasks.push(cosmic::task::message(app::Message::Fetch(
+                    utils::extract_status_images(&status),
+                )));
             }
             Message::PrependStatus(status) => {
                 self.loading = false;

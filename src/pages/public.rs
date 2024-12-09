@@ -6,7 +6,6 @@ use cosmic::{
     widget, Apply, Element, Task,
 };
 use mastodon_async::prelude::{Mastodon, Status, StatusId};
-use reqwest::Url;
 
 use crate::{
     app,
@@ -35,7 +34,6 @@ pub enum Message {
     SetClient(Mastodon),
     AppendStatus(Status),
     Status(crate::widgets::status::Message),
-    FetchHandle(Url),
 }
 
 impl MastodonPage for Public {
@@ -78,12 +76,15 @@ impl Public {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
-            Message::FetchHandle(url) => {
-                tasks.push(cosmic::task::message(app::Message::Fetch(url)));
-            }
             Message::AppendStatus(status) => {
                 self.statuses.push_back(status.id.clone());
-                tasks.push(cosmic::task::message(app::Message::CacheStatus(status)));
+                tasks.push(cosmic::task::message(app::Message::CacheStatus(
+                    status.clone(),
+                )));
+
+                tasks.push(cosmic::task::message(app::Message::Fetch(
+                    crate::utils::extract_status_images(&status),
+                )));
             }
             Message::Status(message) => tasks.push(widgets::status::update(message)),
         }

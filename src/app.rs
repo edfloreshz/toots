@@ -66,7 +66,7 @@ pub enum Message {
     Federated(pages::public::Message),
     Account(widgets::account::Message),
     Status(widgets::status::Message),
-    Fetch(Url),
+    Fetch(Vec<Url>),
     CacheStatus(Status),
     CacheNotification(Notification),
     CacheHandle(Url, Handle),
@@ -495,26 +495,27 @@ impl Application for AppModel {
             Message::CacheNotification(notification) => {
                 self.cache.insert_notification(notification.clone());
             }
-            Message::Fetch(url) => {
-                if !self.cache.handles.contains_key(&url) {
-                    tasks.push(Task::perform(
-                        async move {
-                            match utils::get(&url).await {
-                                Ok(handle) => Some((url, handle)),
-                                Err(err) => {
-                                    tracing::error!("Failed to fetch image: {}", err);
-                                    None
+            Message::Fetch(urls) => {
+                for url in urls {
+                    if !self.cache.handles.contains_key(&url) {
+                        tasks.push(Task::perform(
+                            async move {
+                                match utils::get(&url).await {
+                                    Ok(handle) => Some((url, handle)),
+                                    Err(err) => {
+                                        tracing::error!("Failed to fetch image: {}", err);
+                                        None
+                                    }
                                 }
-                            }
-                        },
-                        |result| match result {
-                            Some((url, handle)) => cosmic::app::message::app(Message::CacheHandle(
-                                url.clone(),
-                                handle.clone(),
-                            )),
-                            None => cosmic::app::message::none(),
-                        },
-                    ));
+                            },
+                            |result| match result {
+                                Some((url, handle)) => cosmic::app::message::app(
+                                    Message::CacheHandle(url.clone(), handle.clone()),
+                                ),
+                                None => cosmic::app::message::none(),
+                            },
+                        ));
+                    }
                 }
             }
             Message::InstanceEdit => {

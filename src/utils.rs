@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use cosmic::{
     iced_core::image,
@@ -71,4 +71,61 @@ pub async fn get(url: impl ToString) -> Result<Handle, Error> {
         }
         Err(err) => Err(err.into()),
     }
+}
+
+pub fn extract_status_images(status: &Status) -> Vec<Url> {
+    let mut urls = Vec::new();
+    urls.push(status.account.avatar.clone());
+    urls.push(status.account.header.clone());
+
+    if let Some(reblog) = &status.reblog {
+        urls.push(reblog.account.avatar.clone());
+        urls.push(reblog.account.header.clone());
+        if let Some(card) = &reblog.card {
+            if let Some(image) = &card.image {
+                if let Ok(url) = Url::from_str(image) {
+                    urls.push(url);
+                }
+            }
+        }
+        for attachment in &reblog.media_attachments {
+            urls.push(attachment.preview_url.clone());
+        }
+    }
+
+    if let Some(card) = &status.card {
+        if let Some(image) = &card.image {
+            if let Ok(url) = Url::from_str(image) {
+                urls.push(url);
+            }
+        }
+    }
+
+    for attachment in &status.media_attachments {
+        urls.push(attachment.preview_url.clone());
+    }
+
+    urls
+}
+
+pub fn extract_notification_images(notification: &Notification) -> Vec<Url> {
+    let mut urls = Vec::new();
+    urls.push(notification.account.avatar.clone());
+    urls.push(notification.account.header.clone());
+
+    if let Some(status) = &notification.status {
+        urls.push(status.account.avatar.clone());
+        urls.push(status.account.header.clone());
+        if let Some(card) = &status.card {
+            if let Some(image) = &card.image {
+                if let Ok(url) = Url::from_str(image) {
+                    urls.push(url);
+                }
+            }
+        }
+        for attachment in &status.media_attachments {
+            urls.push(attachment.preview_url.clone());
+        }
+    }
+    urls
 }

@@ -9,9 +9,12 @@ use mastodon_async::{
     entities::notification::Notification,
     prelude::{Mastodon, NotificationId},
 };
-use reqwest::Url;
 
-use crate::{app, utils::Cache, widgets};
+use crate::{
+    app,
+    utils::{self, Cache},
+    widgets,
+};
 
 use super::MastodonPage;
 
@@ -27,7 +30,6 @@ pub enum Message {
     AppendNotification(Notification),
     PrependNotification(Notification),
     Notification(crate::widgets::notification::Message),
-    FetchHandle(Url),
 }
 
 impl MastodonPage for Notifications {
@@ -69,13 +71,14 @@ impl Notifications {
         let mut tasks = vec![];
         match message {
             Message::SetClient(mastodon) => self.mastodon = mastodon,
-            Message::FetchHandle(url) => {
-                tasks.push(cosmic::task::message(app::Message::Fetch(url)));
-            }
             Message::AppendNotification(notification) => {
                 self.notifications.push_back(notification.id.clone());
                 tasks.push(cosmic::task::message(app::Message::CacheNotification(
-                    notification,
+                    notification.clone(),
+                )));
+
+                tasks.push(cosmic::task::message(app::Message::Fetch(
+                    utils::extract_notification_images(&notification),
                 )));
             }
             Message::PrependNotification(notification) => {
