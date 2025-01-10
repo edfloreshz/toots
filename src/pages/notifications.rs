@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
 
 use cosmic::{
+    app::command::Task,
     iced::{Length, Subscription},
     iced_widget::scrollable::{Direction, Scrollbar},
-    widget, Apply, Element, Task,
+    widget, Apply, Element,
 };
 use mastodon_async::{
     entities::notification::Notification,

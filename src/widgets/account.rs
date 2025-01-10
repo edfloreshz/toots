@@ -1,9 +1,10 @@
 use capitalize::Capitalize;
 use cosmic::{
+    app::command::Task,
     iced::{alignment::Horizontal, ContentFit, Length},
     iced_widget::Stack,
     widget::{self, image::Handle},
-    Apply, Element, Task,
+    Apply, Element,
 };
 use mastodon_async::prelude::Account;
 use reqwest::Url;

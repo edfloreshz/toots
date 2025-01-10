@@ -73,6 +73,7 @@ pub enum Message {
     Dialog(DialogAction),
     EditorAction(widget::text_editor::Action),
     UpdateMastodonInstance,
+    None,
 }
 
 #[derive(Debug, Clone)]
@@ -458,10 +459,10 @@ impl Application for AppModel {
                             mastodon.favourite(&status_id).await
                         };
                         match result {
-                            Ok(status) => cosmic::app::message::app(Message::CacheStatus(status)),
+                            Ok(status) => Message::CacheStatus(status),
                             Err(err) => {
                                 tracing::error!("{err}");
-                                cosmic::app::message::none()
+                                Message::None
                             }
                         }
                     }))
@@ -475,10 +476,10 @@ impl Application for AppModel {
                             mastodon.reblog(&status_id).await
                         };
                         match result {
-                            Ok(status) => cosmic::app::message::app(Message::CacheStatus(status)),
+                            Ok(status) => Message::CacheStatus(status),
                             Err(err) => {
                                 tracing::error!("{err}");
-                                cosmic::app::message::none()
+                                Message::None
                             }
                         }
                     }))
@@ -498,23 +499,21 @@ impl Application for AppModel {
             Message::Fetch(urls) => {
                 for url in urls {
                     if !self.cache.handles.contains_key(&url) {
-                        tasks.push(Task::perform(
-                            async move {
-                                match utils::get(&url).await {
-                                    Ok(handle) => Some((url, handle)),
-                                    Err(err) => {
-                                        tracing::error!("Failed to fetch image: {}", err);
-                                        None
-                                    }
+                        tasks.push(cosmic::task::future(async move {
+                            let result = match utils::get(&url).await {
+                                Ok(handle) => Some((url, handle)),
+                                Err(err) => {
+                                    tracing::error!("Failed to fetch image: {}", err);
+                                    None
                                 }
-                            },
-                            |result| match result {
-                                Some((url, handle)) => cosmic::app::message::app(
-                                    Message::CacheHandle(url.clone(), handle.clone()),
-                                ),
-                                None => cosmic::app::message::none(),
-                            },
-                        ));
+                            };
+                            match result {
+                                Some((url, handle)) => {
+                                    Message::CacheHandle(url.clone(), handle.clone())
+                                }
+                                None => Message::None,
+                            }
+                        }));
                     }
                 }
             }
@@ -530,26 +529,21 @@ impl Application for AppModel {
             }
             Message::RegisterMastodonClient => {
                 let mut registration = Registration::new(self.config.url());
-                tasks.push(Task::perform(
-                    async move {
-                        let scopes = Scopes::from_str("read write").unwrap();
-                        match registration
-                            .client_name("Toot")
-                            .scopes(scopes)
-                            .build()
-                            .await
-                        {
-                            Ok(registration) => Some(registration),
-                            Err(err) => {
-                                tracing::error!("{err}");
-                                None
-                            }
+                tasks.push(cosmic::task::future(async move {
+                    let scopes = Scopes::from_str("read write").unwrap();
+                    match registration
+                        .client_name("Toot")
+                        .scopes(scopes)
+                        .build()
+                        .await
+                    {
+                        Ok(registration) => Message::StoreRegistration(Some(registration)),
+                        Err(err) => {
+                            tracing::error!("{err}");
+                            Message::None
                         }
-                    },
-                    |registration| {
-                        cosmic::app::message::app(Message::StoreRegistration(registration))
-                    },
-                ));
+                    }
+                }));
             }
             Message::StoreRegistration(registration) => {
                 if let Some(ref registration) = registration {
@@ -564,23 +558,15 @@ impl Application for AppModel {
             Message::CompleteRegistration => {
                 if let Some(registration) = self.registration.take() {
                     let code = self.code.clone();
-                    let task = Task::perform(
-                        async move {
-                            match registration.complete(code).await {
-                                Ok(mastodon) => Some(mastodon),
-                                Err(err) => {
-                                    tracing::error!("{err}");
-                                    None
-                                }
+                    let task = cosmic::task::future(async move {
+                        match registration.complete(code).await {
+                            Ok(mastodon) => Message::StoreMastodonData(mastodon),
+                            Err(err) => {
+                                tracing::error!("{err}");
+                                Message::None
                             }
-                        },
-                        |data| match data {
-                            Some(data) => {
-                                cosmic::app::message::app(Message::StoreMastodonData(data))
-                            }
-                            None => cosmic::app::message::none(),
-                        },
-                    );
+                        }
+                    });
                     tasks.push(task);
                 }
             }
@@ -641,12 +627,10 @@ impl Application for AppModel {
                                 let mastodon = self.mastodon.clone();
                                 tasks.push(cosmic::task::future(async move {
                                     match mastodon.new_status(new_status).await {
-                                        Ok(status) => {
-                                            cosmic::app::message::app(Message::CacheStatus(status))
-                                        }
+                                        Ok(status) => Message::CacheStatus(status),
                                         Err(err) => {
                                             tracing::error!("{err}");
-                                            cosmic::app::message::none()
+                                            Message::None
                                         }
                                     }
                                 }));
@@ -690,6 +674,7 @@ impl Application for AppModel {
             Message::UpdateConfig(config) => {
                 self.config = config;
             }
+            Message::None => (),
         }
         Task::batch(tasks)
     }

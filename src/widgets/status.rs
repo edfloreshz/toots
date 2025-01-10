@@ -1,9 +1,10 @@
 use std::str::FromStr;
 
 use cosmic::{
+    app::command::Task,
     iced::{mouse::Interaction, Alignment, Length},
     iced_widget::scrollable::{Direction, Scrollbar},
-    widget, Apply, Element, Task,
+    widget, Apply, Element,
 };
 use mastodon_async::{
     prelude::{Account, Status, StatusId},
