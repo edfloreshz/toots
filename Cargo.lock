@@ -1082,7 +1082,6 @@ dependencies = [
  "serde",
  "thiserror 2.0.3",
  "time",
- "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3381,7 +3380,6 @@ dependencies = [
  "iced_renderer",
  "iced_runtime",
  "iced_tiny_skia",
- "iced_wgpu",
  "iced_widget",
  "iced_winit",
  "lazy_static",
@@ -6098,7 +6096,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.0.2",
- "parking_lot 0.12.3",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.5.7",

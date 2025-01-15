@@ -25,10 +25,6 @@ features = ["all"]
 version = "1.0.215"
 features = ["derive"]
 
-[dependencies.tokio]
-version = "1.41.0"
-features = ["full"]
-
 [dependencies.chrono]
 version = "0.4.38"
 features = ["serde"]
@@ -59,8 +55,6 @@ features = [
     "winit",
     # Add Wayland support to winit
     "wayland",
-    # GPU-accelerated rendering
-    "wgpu",
     # About context drawer support
     "about",
 ]
